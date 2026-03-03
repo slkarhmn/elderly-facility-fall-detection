@@ -10,6 +10,13 @@ Make sure you record data using a laptop, as this requires you to walk around ho
 7. Make sure to record 10-15s of data for each activity. At least 10 times for each activity.
 8. Once all data is saved to the data folder in new csv files, push the files to github
 
+# Activities to Record
+1. Walking
+2. Stumbling
+3. Idle (this should be done both sitting and standing)
+4. Walk up Stairs
+5. Walk Down Stairs
+6. Fall (this should be done sideways, front, and back. Please do this on a bed or beanbag or something soft. Don't break your laptop or the board)
 
 ## CSV File Columns
 | Column | Description |
