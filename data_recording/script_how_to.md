@@ -11,11 +11,13 @@ Make sure you record data using a laptop, as this requires you to walk around ho
 8. Once all data is saved to the data folder in new csv files, push the files to github
 
 # Activities to Record
+For each activity, make 10 recordings, each lasting 10-15s.
+
 1. Walking (do this in different environments/floor types if possible)
 2. Stumbling (make sure to do this in different environments, like on the stairs, even ground, uneven/rough ground, etc.)
 3. Idle (this should be done both sitting and standing)
-4. Walk up Stairs
-5. Walk Down Stairs
+4. Walk up Stairs (do this at different speeds, and walk like an old person)
+5. Walk Down Stairs (do this at different speeds, and walk like an old person)
 6. Fall (this should be done sideways, front, and back. Please do this on a bed or beanbag or something soft. Don't break your laptop or the board)
 
 ## CSV File Columns
