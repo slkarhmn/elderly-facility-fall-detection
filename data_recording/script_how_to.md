@@ -1,14 +1,13 @@
 # How to record data
 Make sure you record data using a laptop, as this requires you to walk around holding the laptop while connected to the Arduino.
 
-1. Plug in the Arduino to your computer and note down the port.
-2. Open script.py, and change the port value to what you noted down.
-3. Create a python environment and activate it
-4. Run `pip install pyserial`
-5. Once installed, place the Arduino board around your waist (using a belt, your hand, anything)
-6. Run the script and follow the instructions. You must perform the activities while holding your computer, with the Arduino at your waist.
-7. Make sure to record 10-15s of data for each activity. At least 10 times for each activity.
-8. Once all data is saved to the data folder in new csv files, push the files to github
+1. Wear the Arduino belt around your waist, with the stitches facing inwards, and the board + wire on your right side.
+2. Plug the Arduino into your computer, open Device Manager (or the Mac equivalent) and note down which port the Arduino is connected to
+3. Open script.py, and change the port value to what you noted down.
+4. Create a python environment, activate the environment, then run `pip install pyserial`
+5. Run the script and follow the instructions. You must perform the activities while holding your computer, with the Arduino at your waist.
+6. Make sure to record 10-15s of data for each activity. At least 10 times for each activity.
+7. Once all data is saved to the data folder in new csv files, push the files to github
 
 # Activities to Record
 For each activity, make 10 recordings, each lasting 10-15s.
@@ -20,7 +19,7 @@ For each activity, make 10 recordings, each lasting 10-15s.
 5. Walk Down Stairs (do this at different speeds, and walk like an old person)
 6. Fall (this should be done sideways, front, and back. Please do this on a bed or beanbag or something soft. Don't break your laptop or the board)
 
-## CSV File Columns
+## CSV File
 | Column | Description |
 |---|---|
 | `timestamp_ms` | Time in milliseconds since the Arduino powered on |
