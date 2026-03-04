@@ -8,36 +8,52 @@ from datetime import datetime
 PORT = "COM3"  # Windows: "COM3", Mac: "/dev/cu.usbmodem..."
 BAUD = 115200
 
-ser = serial.Serial(PORT, BAUD, timeout=1)
+ACTIVITIES = [
+    "walking",
+    "stumbling",
+    "idle_standing",
+    "idle_sitting",
+    "upstairs",
+    "downstairs",
+    "fall_forwards",
+    "fall_backwards",
+    "fall_sideways"
+]
 
-# Wait for Arduino to boot and flush any garbage
+ser = serial.Serial(PORT, BAUD, timeout=1)
 time.sleep(2)
 ser.reset_input_buffer()
-
-# Skip the header line from Arduino
 ser.readline()
 
-# Hardcoded header
 header = ["timestamp_ms", "ax", "ay", "az", "gx", "gy", "gz", "label"]
-
 os.makedirs("data", exist_ok=True)
 
 while True:
-    label = input("\nEnter activity label (or 'quit' to exit): ").strip()
-    if label == "quit":
+    print("\nActivities:")
+    for i, activity in enumerate(ACTIVITIES, 1):
+        print(f"  {i}. {activity}")
+    print("  0. quit")
+
+    choice = input("\nEnter activity number: ").strip()
+
+    if choice == "0":
         break
 
+    if not choice.isdigit() or not (1 <= int(choice) <= len(ACTIVITIES)):
+        print(f"Invalid choice. Please enter a number between 0 and {len(ACTIVITIES)}.")
+        continue
+
+    label = ACTIVITIES[int(choice) - 1]
     filename = f"data/data_{label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     print(f"Recording '{label}' → {filename}")
     print("Press Enter to START, then Enter again to STOP...")
-    input()  
+    input()
 
     with open(filename, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(header)
         print("Recording... press Enter to stop.")
-        ser.reset_input_buffer()  
-
+        ser.reset_input_buffer()
         stop_flag = threading.Event()
         threading.Thread(target=lambda: (input(), stop_flag.set()), daemon=True).start()
 
@@ -45,7 +61,7 @@ while True:
             line = ser.readline().decode('utf-8').strip()
             if line and not line.startswith("timestamp") and not line.startswith("ERROR"):
                 row = line.split(",")
-                if len(row) == 7:  # sanity check: 7 data columns expected
+                if len(row) == 7:
                     row.append(label)
                     writer.writerow(row)
 
