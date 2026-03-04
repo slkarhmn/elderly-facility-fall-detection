@@ -11,8 +11,8 @@ Make sure you record data using a laptop, as this requires you to walk around ho
 8. Once all data is saved to the data folder in new csv files, push the files to github
 
 # Activities to Record
-1. Walking
-2. Stumbling
+1. Walking (do this in different environments/floor types if possible)
+2. Stumbling (make sure to do this in different environments, like on the stairs, even ground, uneven/rough ground, etc.)
 3. Idle (this should be done both sitting and standing)
 4. Walk up Stairs
 5. Walk Down Stairs
