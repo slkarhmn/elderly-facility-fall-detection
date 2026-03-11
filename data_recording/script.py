@@ -15,9 +15,7 @@ ACTIVITIES = [
     "idle_sitting",
     "upstairs",
     "downstairs",
-    "fall_forwards",
-    "fall_backwards",
-    "fall_sideways"
+    "fall"
 ]
 
 ser = serial.Serial(PORT, BAUD, timeout=1)
