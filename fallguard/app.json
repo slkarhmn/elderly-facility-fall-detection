@@ -38,7 +38,9 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-font",
+      "react-native-ble-plx"
     ],
     "experiments": {
       "typedRoutes": true,
