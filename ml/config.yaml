@@ -1,0 +1,102 @@
+project:
+  name: elderly-facility-fall-detection
+  random_seed: 42
+
+data:
+  manifest_path: ml/dataset_manifest.csv
+  raw_data_dir: data_recording/data
+  required_columns:
+    - timestamp_ms
+    - ax
+    - ay
+    - az
+    - gx
+    - gy
+    - gz
+    - label
+  labels:
+    - walking
+    - stumbling
+    - idle_standing
+    - idle_sitting
+    - upstairs
+    - downstairs
+    - fall
+
+sensors:
+  recorded_sample_rate_hz: 100
+  training_sample_rate_hz: 50
+  primary_axes:
+    - ax
+    - ay
+    - az
+  optional_axes:
+    - gx
+    - gy
+    - gz
+  use_gyro: false
+
+windowing:
+  window_seconds: 2.0
+  overlap_fraction: 0.0
+  minimum_rows_per_window_fraction: 1.0
+
+features:
+  per_axis_statistics:
+    - mean
+    - std
+    - min
+    - max
+    - range
+    - energy
+  magnitude_statistics:
+    - mean
+    - std
+    - min
+    - max
+    - range
+    - energy
+
+personalization:
+  enabled: true
+  baseline_label: walking
+  calibration_window_target: 10
+  calibration_seconds_min: 10
+  calibration_seconds_max: 20
+  threshold_adjustments:
+    stumble_sensitivity_scale: 1.0
+    fall_confirmation_scale: 1.0
+    inactivity_seconds_scale: 1.0
+
+evaluation:
+  preferred_mode: leave_one_user_out
+  provisional_allow_missing_classes: true
+  minimum_windows_per_class: 5
+  validation_fraction: 0.2
+
+model:
+  hidden_units:
+    - 16
+    - 8
+  dropout_rate: 0.1
+  learning_rate: 0.001
+  batch_size: 16
+  epochs: 40
+  early_stopping_patience: 6
+
+artifacts:
+  root_dir: ml/artifacts
+  processed_dataset_path: ml/artifacts/processed_windows.csv
+  audit_report_path: ml/artifacts/dataset_audit.json
+  training_user_profiles_path: ml/artifacts/training_user_profiles.json
+  training_dir: ml/artifacts/training
+  evaluation_dir: ml/artifacts/training/evaluation
+  final_model_path: ml/artifacts/training/final_model.keras
+  final_scaler_path: ml/artifacts/training/final_scaler.json
+  final_training_summary_path: ml/artifacts/training/final_training_summary.json
+  model_metadata_path: ml/artifacts/model_metadata.json
+  tflite_model_path: ml/artifacts/model.tflite
+  tflite_validation_path: ml/artifacts/tflite_validation.json
+  user_profiles_dir: ml/artifacts/user_profiles
+  generated_header_path: data_recording/model_data.h
+  generated_settings_header_path: data_recording/model_settings.h

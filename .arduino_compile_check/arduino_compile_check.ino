@@ -2,7 +2,7 @@
 #include <ctype.h>
 #include <math.h>
 
-#define ENABLE_TINYML 0
+#define ENABLE_TINYML 1
 
 #if ENABLE_TINYML
 #include "model_data.h"
@@ -315,9 +315,7 @@ bool setupTinyMl() {
     tfliteModel,
     resolver,
     tensorArena,
-    kTensorArenaSize,
-    nullptr,
-    nullptr
+    kTensorArenaSize
   );
   interpreter = &staticInterpreter;
   if (interpreter->AllocateTensors() != kTfLiteOk) {
