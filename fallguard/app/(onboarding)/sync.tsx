@@ -8,7 +8,11 @@ import {
   Animated,
   ScrollView,
   ActivityIndicator,
+  Platform,
+  Alert,
 } from 'react-native'
+import { BleManager, Device, State } from 'react-native-ble-plx'
+import { PermissionsAndroid } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { colors, radius } from '../../constants/theme'
@@ -22,15 +26,50 @@ import {
 } from '../../components/OnboardingUI'
 import { useOnboardingStore } from '../../store/onboardingStore'
 
+// ─── Arduino BLE constants ────────────────────────────────────────────────────
+// From nRF Connect scan of FallGuardNano (C3:CF:92:D8:53:E4)
+const FALLGUARD_SERVICE_UUID     = '19b10000-e8f2-537e-4f6c-d104768a1214'
+// If your Arduino sketch exposes a characteristic under this service,
+// put its UUID here — used for future data reads (fall detection, calibration)
+// Leave as null if you only need the connection for now
+const FALLGUARD_CHARACTERISTIC_UUID: string | null = null
+
+// ─── BLE Manager singleton ────────────────────────────────────────────────────
+const bleManager = new BleManager()
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 type ScanState = 'idle' | 'scanning' | 'found' | 'connected' | 'error'
 
-const MOCK_DEVICES = [
-  { id: 'FG-A3F2', name: 'FallGuard #A3F2', rssi: -52 },
-  { id: 'FG-B1C9', name: 'FallGuard #B1C9', rssi: -68 },
-]
+interface ScannedDevice {
+  id: string
+  name: string
+  rssi: number
+  rawDevice: Device
+}
+
+// ─── Permissions ──────────────────────────────────────────────────────────────
+async function requestAndroidPermissions(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true
+  const apiLevel = Platform.Version as number
+  if (apiLevel >= 31) {
+    const results = await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+    ])
+    return (
+      results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === 'granted' &&
+      results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === 'granted'
+    )
+  } else {
+    const result = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+    )
+    return result === 'granted'
+  }
+}
 
 // ─── Pulse Ring ───────────────────────────────────────────────────────────────
-
 function PulseRing({ scanning }: { scanning: boolean }) {
   const ring1 = useRef(new Animated.Value(0)).current
   const ring2 = useRef(new Animated.Value(0)).current
@@ -104,13 +143,12 @@ const pulseStyles = StyleSheet.create({
 })
 
 // ─── Device Row ───────────────────────────────────────────────────────────────
-
 function DeviceRow({
   device,
   selected,
   onSelect,
 }: {
-  device: { id: string; name: string; rssi: number }
+  device: ScannedDevice
   selected: boolean
   onSelect: () => void
 }) {
@@ -130,7 +168,7 @@ function DeviceRow({
           {device.name}
         </Text>
         <Text style={[deviceStyles.id, selected && deviceStyles.idSelected]}>
-          ID: {device.id} · Signal: {'▮'.repeat(signalBars)}{'▯'.repeat(3 - signalBars)}
+          {device.id.toUpperCase()} · Signal: {'▮'.repeat(signalBars)}{'▯'.repeat(3 - signalBars)}
         </Text>
       </View>
       <View style={[deviceStyles.radio, selected && deviceStyles.radioSelected]}>
@@ -164,7 +202,7 @@ const deviceStyles = StyleSheet.create({
   iconSelected: { backgroundColor: 'rgba(251,247,236,0.1)' },
   name: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 14, color: colors.ink },
   nameSelected: { color: colors.bg },
-  id: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 11, color: colors.ink, opacity: 0.42, marginTop: 2 },
+  id: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 10, color: colors.ink, opacity: 0.42, marginTop: 2 },
   idSelected: { color: colors.bg, opacity: 0.45 },
   radio: {
     width: 20,
@@ -180,36 +218,169 @@ const deviceStyles = StyleSheet.create({
 })
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
-
 export default function StepSync() {
   const { setArduinoConnected } = useOnboardingStore()
+
   const [scanState, setScanState] = useState<ScanState>('idle')
-  const [devices, setDevices] = useState<typeof MOCK_DEVICES>([])
+  const [devices, setDevices] = useState<ScannedDevice[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  const discoveredRef = useRef<Map<string, ScannedDevice>>(new Map())
+  const connectedDeviceRef = useRef<Device | null>(null)
+  const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const canContinue = scanState === 'connected'
 
-  const startScan = () => {
+  useEffect(() => {
+    return () => {
+      bleManager.stopDeviceScan()
+      if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current)
+    }
+  }, [])
+
+  // ── Start scan ───────────────────────────────────────────────────────────────
+  const startScan = async () => {
+    setErrorMsg('')
     setScanState('scanning')
     setDevices([])
     setSelectedId(null)
-    setTimeout(() => {
-      setDevices(MOCK_DEVICES)
-      setScanState('found')
-    }, 2000)
+    discoveredRef.current.clear()
+
+    const hasPermission = await requestAndroidPermissions()
+    if (!hasPermission) {
+      setErrorMsg('Bluetooth permission denied. Please allow Bluetooth access in Settings.')
+      setScanState('error')
+      return
+    }
+
+    const bleState = await bleManager.state()
+    if (bleState !== State.PoweredOn) {
+      const sub = bleManager.onStateChange((state) => {
+        if (state === State.PoweredOn) {
+          sub.remove()
+          beginScan()
+        }
+      }, true)
+      return
+    }
+
+    beginScan()
   }
 
-  const connectToDevice = (deviceId: string) => {
+  const beginScan = () => {
+    // Scan specifically for devices advertising our service UUID.
+    // This is more reliable than name-filtering and works even if the
+    // device name isn't in the advertisement packet on some Android versions.
+    bleManager.startDeviceScan(
+      [FALLGUARD_SERVICE_UUID],
+      { allowDuplicates: false },
+      (error, device) => {
+        if (error) {
+          bleManager.stopDeviceScan()
+          // Fallback: some Android versions don't support service UUID filtering
+          // during scan — if that happens, scan all and filter by name instead
+          if (error.errorCode === 601) {
+            beginScanAllDevices()
+            return
+          }
+          setErrorMsg(error.message ?? 'Scan failed.')
+          setScanState('error')
+          return
+        }
+        if (!device) return
+        handleDiscoveredDevice(device)
+      }
+    )
+
+    scanTimeoutRef.current = setTimeout(() => {
+      bleManager.stopDeviceScan()
+      setScanState((prev) => {
+        if (prev === 'scanning') {
+          setErrorMsg('No FallGuardNano found. Make sure the sensor is powered on and nearby.')
+          return 'error'
+        }
+        return prev
+      })
+    }, 10_000)
+  }
+
+  // Fallback scan — no service UUID filter, filter by name instead
+  const beginScanAllDevices = () => {
+    bleManager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
+      if (error) {
+        bleManager.stopDeviceScan()
+        setErrorMsg(error.message ?? 'Scan failed.')
+        setScanState('error')
+        return
+      }
+      if (!device) return
+      const name = device.name ?? device.localName ?? ''
+      if (!name.toLowerCase().includes('fallguard')) return
+      handleDiscoveredDevice(device)
+    })
+  }
+
+  const handleDiscoveredDevice = (device: Device) => {
+    const name = device.name ?? device.localName ?? 'FallGuardNano'
+    const scanned: ScannedDevice = {
+      id: device.id,
+      name,
+      rssi: device.rssi ?? -90,
+      rawDevice: device,
+    }
+    discoveredRef.current.set(device.id, scanned)
+    setDevices(Array.from(discoveredRef.current.values()))
+    setScanState('found')
+  }
+
+  // ── Connect ───────────────────────────────────────────────────────────────────
+  const connectToDevice = async (scanned: ScannedDevice) => {
+    bleManager.stopDeviceScan()
+    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current)
+
     setConnecting(true)
-    setSelectedId(deviceId)
-    setTimeout(() => {
+    setSelectedId(scanned.id)
+    setErrorMsg('')
+
+    try {
+      const device = await bleManager.connectToDevice(scanned.id, {
+        autoConnect: false,
+        timeout: 10000,
+      })
+
+      // Must call this before reading/writing any characteristic
+      await device.discoverAllServicesAndCharacteristics()
+
+      connectedDeviceRef.current = device
+
+      // Handle unexpected disconnects
+      device.onDisconnected(() => {
+        Alert.alert(
+          'Sensor Disconnected',
+          'FallGuardNano disconnected. Please reconnect.',
+          [{ text: 'OK' }]
+        )
+        setScanState('idle')
+        setSelectedId(null)
+        connectedDeviceRef.current = null
+      })
+
       setConnecting(false)
       setScanState('connected')
-      setArduinoConnected(deviceId)
-    }, 1500)
+      setArduinoConnected(device.id)
+
+    } catch (err: any) {
+      setConnecting(false)
+      setSelectedId(null)
+      // Common error: device out of range or already connected
+      const msg = err?.message ?? 'Connection failed.'
+      setErrorMsg(msg.includes('already') ? 'Already connected — tap the device to retry.' : msg)
+    }
   }
 
+  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
@@ -224,7 +395,7 @@ export default function StepSync() {
           <StepTag current={3} total={5} />
           <Headline>{'Sync your\nArduino.'}</Headline>
           <Subline>
-            Make sure your FallGuard sensor is powered on and within 1 metre of your phone.
+            Make sure your FallGuardNano is powered on and within 1 metre of your phone.
           </Subline>
 
           <PulseRing scanning={scanState === 'scanning'} />
@@ -238,7 +409,7 @@ export default function StepSync() {
           {scanState === 'scanning' && (
             <View style={styles.scanningRow}>
               <ActivityIndicator color={colors.ink} size="small" />
-              <Text style={styles.scanningText}>Searching for nearby devices…</Text>
+              <Text style={styles.scanningText}>Searching for FallGuardNano…</Text>
             </View>
           )}
 
@@ -250,27 +421,39 @@ export default function StepSync() {
                   key={d.id}
                   device={d}
                   selected={selectedId === d.id}
-                  onSelect={() => !connecting && connectToDevice(d.id)}
+                  onSelect={() => !connecting && connectToDevice(d)}
                 />
               ))}
+
               {connecting && (
                 <View style={styles.connectingRow}>
                   <ActivityIndicator color={colors.ink} size="small" />
-                  <Text style={styles.connectingText}>Connecting…</Text>
+                  <Text style={styles.connectingText}>Connecting to FallGuardNano…</Text>
                 </View>
               )}
+
+              {!!errorMsg && (
+                <Text style={styles.inlineError}>{errorMsg}</Text>
+              )}
+
               {scanState === 'connected' && (
                 <View style={styles.successBox}>
                   <Ionicons name="checkmark-circle" size={22} color={colors.ink} />
-                  <View>
+                  <View style={{ flex: 1 }}>
                     <Text style={styles.successTitle}>Device connected!</Text>
                     <Text style={styles.successSub}>
-                      FallGuard #{selectedId?.split('-')[1]} is ready.
+                      {devices.find((d) => d.id === selectedId)?.name ?? 'FallGuardNano'} is ready.
                     </Text>
                   </View>
                 </View>
               )}
-              <TouchableOpacity style={styles.rescanBtn} onPress={startScan} activeOpacity={0.6}>
+
+              <TouchableOpacity
+                style={styles.rescanBtn}
+                onPress={startScan}
+                activeOpacity={0.6}
+                disabled={connecting}
+              >
                 <Text style={styles.rescanLabel}>Scan again</Text>
               </TouchableOpacity>
             </>
@@ -279,7 +462,7 @@ export default function StepSync() {
           {scanState === 'error' && (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>
-                Couldn't find any devices. Make sure Bluetooth is on and your sensor is nearby.
+                {errorMsg || "Couldn't find FallGuardNano. Make sure Bluetooth is on and the sensor is nearby."}
               </Text>
               <TouchableOpacity style={styles.scanBtn} onPress={startScan}>
                 <Text style={styles.scanBtnLabel}>Try Again</Text>
@@ -289,14 +472,14 @@ export default function StepSync() {
 
           <View style={styles.tipsBox}>
             <Text style={styles.tipsTitle}>Tips</Text>
-            <Text style={styles.tipItem}>• Turn on your Arduino sensor before scanning</Text>
+            <Text style={styles.tipItem}>• Power on your Arduino Nano before scanning</Text>
             <Text style={styles.tipItem}>• Keep Bluetooth enabled on your phone</Text>
             <Text style={styles.tipItem}>• Stay within 1 metre of the sensor</Text>
+            <Text style={styles.tipItem}>• The device should show as "FallGuardNano"</Text>
           </View>
         </ScrollView>
       </View>
 
-      {/* OUTSIDE container — won't move with keyboard */}
       <CTAButton
         label="Continue"
         onPress={() => router.push('/(onboarding)/calibrate')}
@@ -310,7 +493,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   container: { flex: 1, backgroundColor: colors.bg },
   scroll: { flex: 1, backgroundColor: colors.bg },
-  scrollContent: { paddingHorizontal: 28, paddingTop: 22, paddingBottom: 24 },
+  scrollContent: { paddingHorizontal: 28, paddingTop: 22, paddingBottom: 120 },
   scanBtn: {
     alignSelf: 'center',
     paddingHorizontal: 28,
@@ -338,6 +521,7 @@ const styles = StyleSheet.create({
   successSub: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 12, color: colors.ink, opacity: 0.45, marginTop: 2 },
   rescanBtn: { alignSelf: 'flex-start', marginBottom: 20 },
   rescanLabel: { fontFamily: 'NunitoSans_700Bold', fontSize: 13, color: colors.ink, opacity: 0.35, textDecorationLine: 'underline' },
+  inlineError: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 12.5, color: '#b33', opacity: 0.8, lineHeight: 18, marginBottom: 12 },
   errorBox: { gap: 14, marginBottom: 20 },
   errorText: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 13, color: colors.ink, opacity: 0.5, lineHeight: 20 },
   tipsBox: { padding: 16, backgroundColor: 'rgba(49,55,43,0.05)', borderRadius: radius.md, gap: 6, marginTop: 8 },

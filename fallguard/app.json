@@ -9,7 +9,10 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Used to connect to your FallGuard sensor",
+        "NSBluetoothPeripheralUsageDescription": "Used to connect to your FallGuard sensor"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +22,15 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.miaumiaunoway.fallguard"
     },
     "web": {
       "output": "static",
@@ -45,6 +56,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "09a7bf76-2471-4041-9dca-16f41ec708ff"
+      }
     }
   }
 }
