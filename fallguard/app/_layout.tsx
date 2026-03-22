@@ -12,6 +12,7 @@ import {
 import * as SplashScreen from 'expo-splash-screen'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { View } from 'react-native'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 SplashScreen.preventAutoHideAsync()
 
@@ -27,37 +28,45 @@ export default function RootLayout() {
     NunitoSans_900Black,
   })
 
-  // Step 1 — load fonts + check AsyncStorage, store destination
   useEffect(() => {
     async function init() {
       if (!fontsLoaded && !fontError) return
       try {
-        const done = await AsyncStorage.getItem('onboarding_complete')
+        const onboardingDone = await AsyncStorage.getItem('onboarding_complete')
+        const role = await AsyncStorage.getItem('user_role')
         await SplashScreen.hideAsync()
-        setDestination(done === 'true' ? '/(tabs)' : '/(onboarding)/profile')
+
+        if (role === 'manager') {
+          setDestination('/(manager)')
+        } else if (onboardingDone === 'true') {
+          setDestination('/(tabs)')
+        } else {
+          // Show role selection before onboarding
+          setDestination('/role-select')
+        }
       } catch {
         await SplashScreen.hideAsync()
-        setDestination('/(onboarding)/profile')
+        setDestination('/role-select')
       }
     }
     init()
   }, [fontsLoaded, fontError])
 
-  // Step 2 — navigate only after Stack is mounted (destination is set)
   useEffect(() => {
     if (!destination) return
     router.replace(destination as any)
   }, [destination])
 
-  // Show blank beige until ready
   if (!destination) {
     return <View style={{ flex: 1, backgroundColor: '#FBF7EC' }} />
   }
 
   return (
     <>
+      <SafeAreaProvider>
       <Stack screenOptions={{ headerShown: false }} />
       <StatusBar style="dark" backgroundColor="#FBF7EC" />
+      </SafeAreaProvider>
     </>
   )
 }
