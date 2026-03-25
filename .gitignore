@@ -6,3 +6,6 @@ ml/artifacts/
 data_recording/model_data.h
 data_recording/model_settings.h
 arduino_compile_check/
+bluetooth/
+**.code-workspace
+ble_scanner/

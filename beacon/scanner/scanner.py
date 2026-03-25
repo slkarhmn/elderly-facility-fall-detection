@@ -3,9 +3,9 @@ from bleak import BleakScanner
 import socket
 
 ROOM_NAME = "ROOM_A"
-//each scanner needs to change the room name
-SERVER_IP = "127.0.0.1" //points to host machine
-//each scanner needs to change the IP to point to the server laptop
+# each scanner needs to change the room name
+SERVER_IP = "127.0.0.1" # points to host machine
+#each scanner needs to change the IP to point to the server laptop
 SERVER_PORT = 5000
 
 def send_to_server(patient_id, rssi):
