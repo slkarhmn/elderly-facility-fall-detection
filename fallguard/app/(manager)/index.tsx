@@ -17,7 +17,7 @@ import { colors, radius } from '../../constants/theme'
 import { MOCK_RESIDENTS, Resident } from '../../store/managerMockData'
 import { useServerWebSocket, PatientState, FallEvent } from '../../hooks/useServerWebSocket'
 
-const SERVER_IP = '192.168.1.100' // TODO: same as resident — make configurable in settings
+const SERVER_IP = ''
 
 // Notification setup 
 

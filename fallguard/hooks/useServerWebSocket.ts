@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 
 export type PatientState = {
-  location: string | null     
-  state: string               
+  location: string | null
+  state: string
   state_index: number | null
-  rooms: Record<string, number> 
+  rooms: Record<string, number>
 }
 
 export type FallEvent = {
@@ -20,9 +20,9 @@ type ServerMessage =
   | { type: 'state_change' | 'heartbeat'; patient_id: string; room: string; rssi: number; state_index: number; state: string; location: string }
 
 type Options = {
-  serverIp: string                        
-  port?: number                            
-  onFall?: (event: FallEvent) => void      
+  serverIp: string
+  port?: number
+  onFall?: (event: FallEvent) => void
 }
 
 export type WSStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -37,13 +37,17 @@ export function useServerWebSocket({ serverIp, port = 5001, onFall }: Options) {
   onFallRef.current = onFall
 
   const connect = useCallback(() => {
+    if (!serverIp) {
+      setStatus('disconnected')
+      return
+    }
+
     if (wsRef.current) {
       wsRef.current.close()
     }
 
     setStatus('connecting')
-    const url = `ws://${serverIp}:${port}`
-    const ws = new WebSocket(url)
+    const ws = new WebSocket(`ws://${serverIp}:${port}`)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -57,7 +61,6 @@ export function useServerWebSocket({ serverIp, port = 5001, onFall }: Options) {
     ws.onmessage = (event) => {
       try {
         const msg: ServerMessage = JSON.parse(event.data)
-
         if (msg.type === 'snapshot') {
           setPatients(msg.patients)
         } else if (msg.type === 'fall' || msg.type === 'fall_likely') {
@@ -94,7 +97,7 @@ export function useServerWebSocket({ serverIp, port = 5001, onFall }: Options) {
 
     ws.onclose = () => {
       setStatus('disconnected')
-      // Auto-reconnect after 3s
+      if (!serverIp) return
       reconnectTimer.current = setTimeout(() => {
         connect()
       }, 3000)

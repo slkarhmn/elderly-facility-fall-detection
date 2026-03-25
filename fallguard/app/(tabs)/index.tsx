@@ -12,7 +12,7 @@ import { colors, radius } from '../../constants/theme'
 import { useOnboardingStore } from '../../store/onboardingStore'
 import { useFallDetection } from '../../hooks/useFallDetection'
 
-const SERVER_IP         = '192.168.1.100' // change to your server's LAN IP
+const SERVER_IP         = '' 
 const AUTO_CALL_SECONDS = 30
 
 // Notifications 
