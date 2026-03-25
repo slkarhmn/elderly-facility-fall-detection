@@ -206,8 +206,14 @@ export default function StepSync() {
       await device.discoverAllServicesAndCharacteristics()
       connectedDeviceRef.current = device
       device.onDisconnected(() => {
-        Alert.alert('Sensor Disconnected', 'FallGuardNano disconnected. Please reconnect.', [{ text: 'OK' }])
-        setScanState('idle'); setSelectedId(null); connectedDeviceRef.current = null
+        connectedDeviceRef.current = null
+        setTimeout(() => {
+          if (!connectedDeviceRef.current) {
+            Alert.alert('Sensor Disconnected', 'FallGuardNano disconnected. Please reconnect.', [{ text: 'OK' }])
+            setScanState('idle')
+            setSelectedId(null)
+          }
+        }, 3000)
       })
       setConnecting(false); setScanState('connected'); setArduinoConnected(device.id)
     } catch (err: any) {

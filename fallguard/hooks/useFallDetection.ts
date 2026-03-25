@@ -3,24 +3,21 @@ import { useBLE, BLEState } from './useBLE'
 import { useServerWebSocket, FallEvent, PatientState } from './useServerWebSocket'
 
 type Options = {
-  deviceId: string | null      
-  patientId: string            
-  serverIp: string             
-  onFall: () => void           
+  deviceId: string | null
+  patientId: string
+  serverIp: string
+  onFall: () => void
 }
 
 export type FallDetectionState = {
   ble: BLEState
-
   serverState: PatientState | null
   wsStatus: 'connecting' | 'connected' | 'disconnected' | 'error'
-
   fallDetected: boolean
-
   activityLabel: string
   activityIndex: number
-
   room: string | null
+  bleReconnect: () => void
 }
 
 export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Options): FallDetectionState {
@@ -57,11 +54,9 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
   })
 
   const serverState = patients[patientId] ?? null
-
   const bleActive = ble.status === 'connected' && ble.predictionIndex >= 0
   const activityIndex = bleActive ? ble.predictionIndex : (serverState?.state_index ?? -1)
   const activityLabel = bleActive ? ble.predictionLabel : (serverState?.state ?? 'unknown')
-
   const fallDetected = ble.fallAlert || serverState?.state_index === 6
 
   return {
@@ -72,5 +67,6 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
     activityLabel,
     activityIndex,
     room: serverState?.location ?? null,
+    bleReconnect: ble.reconnect,
   }
 }

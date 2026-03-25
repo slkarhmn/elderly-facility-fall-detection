@@ -1,13 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Modal,
-  Alert,
-} from 'react-native'
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert } from 'react-native'
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router } from 'expo-router'
@@ -17,47 +9,35 @@ import { colors, radius } from '../../constants/theme'
 import { MOCK_RESIDENTS, Resident } from '../../store/managerMockData'
 import { useServerWebSocket, PatientState, FallEvent } from '../../hooks/useServerWebSocket'
 
-const SERVER_IP = ''
-
-// Notification setup 
-
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowAlert: true, shouldPlaySound: true,
+    shouldSetBadge: true, shouldShowBanner: true, shouldShowList: true,
   }),
 })
 
 async function setupNotifications() {
   await Notifications.setNotificationChannelAsync('fall-alerts', {
-    name: 'Fall Alerts',
-    importance: Notifications.AndroidImportance.MAX,
-    sound: 'default',
-    vibrationPattern: [0, 250, 250, 250],
+    name: 'Fall Alerts', importance: Notifications.AndroidImportance.MAX,
+    sound: 'default', vibrationPattern: [0, 250, 250, 250],
   })
   await Notifications.requestPermissionsAsync()
 }
 
 async function fireManagerNotification(patientId: string, room: string, type: 'fall' | 'fall_likely') {
-  const title = type === 'fall' ? '🚨 Fall Detected' : '⚠️ Fall Likely'
-  const body = `${patientId.replace('_', ' ')} in ${room}`
-  await Notifications.scheduleNotificationAsync({
-    content: { title, body, sound: true },
-    trigger: null,
-  })
+  const title = type === 'fall' ? 'Fall Detected' : 'Fall Likely'
+  const body = patientId.replace('_', ' ') + ' in ' + room
+  await Notifications.scheduleNotificationAsync({ content: { title, body, sound: true }, trigger: null })
 }
 
 function timeAgo(date: Date): string {
   const diffMs = Date.now() - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
   if (diffMins < 1) return 'Just now'
-  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffMins < 60) return diffMins + 'm ago'
   const diffHrs = Math.floor(diffMins / 60)
-  if (diffHrs < 24) return `${diffHrs}h ago`
-  return `${Math.floor(diffHrs / 24)}d ago`
+  if (diffHrs < 24) return diffHrs + 'h ago'
+  return Math.floor(diffHrs / 24) + 'd ago'
 }
 
 function activityColor(state: string): string {
@@ -70,15 +50,10 @@ function activityColor(state: string): string {
   }
 }
 
-function activityLabel(state: string): string {
-  return state.replace('_', ' ')
-}
-
+function activityLabel(state: string): string { return state.replace(/_/g, ' ') }
 function severityColor(severity: 'low' | 'medium' | 'high'): string {
   return severity === 'high' ? '#F44336' : severity === 'medium' ? '#FF5722' : '#FF9800'
 }
-
-// Battery Indicator 
 
 function BatteryDot({ level, connected }: { level: number; connected: boolean }) {
   if (!connected) return <Ionicons name="wifi-outline" size={12} color="rgba(49,55,43,0.25)" />
@@ -91,61 +66,36 @@ function BatteryDot({ level, connected }: { level: number; connected: boolean })
   )
 }
 
-// Resident Card 
-
-function ResidentCard({
-  resident,
-  liveState,
-  onPress,
-}: {
-  resident: Resident
-  liveState: PatientState | null
-  onPress: () => void
-}) {
+function ResidentCard({ resident, liveState, onPress }: { resident: Resident; liveState: PatientState | null; onPress: () => void }) {
   const hasAlert = liveState?.state === 'fall' || resident.fallEvents.some(f => !f.resolved)
   const unresolvedFalls = resident.fallEvents.filter(f => !f.resolved).length
-
   const displayState = liveState?.state ?? resident.currentActivity
   const displayLocation = liveState?.location ?? resident.room
 
   return (
-    <TouchableOpacity
-      style={[cardStyles.card, hasAlert && cardStyles.cardAlert]}
-      onPress={onPress}
-      activeOpacity={0.75}
-    >
+    <TouchableOpacity style={[cardStyles.card, hasAlert && cardStyles.cardAlert]} onPress={onPress} activeOpacity={0.75}>
       <View style={cardStyles.topRow}>
         <View style={cardStyles.avatar}>
-          <Text style={cardStyles.avatarText}>
-            {resident.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-          </Text>
+          <Text style={cardStyles.avatarText}>{resident.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</Text>
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[cardStyles.name, hasAlert && cardStyles.nameAlert]}>{resident.name}</Text>
-          <Text style={[cardStyles.meta, hasAlert && cardStyles.metaAlert]}>
-            {displayLocation} · Age {resident.age}
-          </Text>
+          <Text style={[cardStyles.meta, hasAlert && cardStyles.metaAlert]}>{displayLocation} - Age {resident.age}</Text>
         </View>
         <View style={[cardStyles.activityBadge, { backgroundColor: activityColor(displayState) + '18' }]}>
           <View style={[cardStyles.activityDot, { backgroundColor: activityColor(displayState) }]} />
-          <Text style={[cardStyles.activityText, { color: activityColor(displayState) }]}>
-            {activityLabel(displayState)}
-          </Text>
+          <Text style={[cardStyles.activityText, { color: activityColor(displayState) }]}>{activityLabel(displayState)}</Text>
         </View>
       </View>
-
       <View style={cardStyles.bottomRow}>
         <BatteryDot level={resident.deviceBattery} connected={resident.deviceConnected} />
-        <Text style={[cardStyles.lastSeen, hasAlert && cardStyles.lastSeenAlert]}>
-          {liveState ? 'Live' : `Seen ${timeAgo(resident.lastSeen)}`}
-        </Text>
+        <Text style={[cardStyles.lastSeen, hasAlert && cardStyles.lastSeenAlert]}>{liveState ? 'Live' : 'Seen ' + timeAgo(resident.lastSeen)}</Text>
         <View style={{ flex: 1 }} />
         {resident.fallEvents.length > 0 && (
           <View style={[cardStyles.fallBadge, unresolvedFalls > 0 && cardStyles.fallBadgeUnresolved]}>
             <Ionicons name="warning-outline" size={10} color={unresolvedFalls > 0 ? '#F44336' : colors.ink} />
             <Text style={[cardStyles.fallCount, unresolvedFalls > 0 && cardStyles.fallCountUnresolved]}>
-              {resident.fallEvents.length} fall{resident.fallEvents.length !== 1 ? 's' : ''}
-              {unresolvedFalls > 0 ? ` · ${unresolvedFalls} open` : ''}
+              {resident.fallEvents.length} fall{resident.fallEvents.length !== 1 ? 's' : ''}{unresolvedFalls > 0 ? ' - ' + unresolvedFalls + ' open' : ''}
             </Text>
           </View>
         )}
@@ -156,11 +106,7 @@ function ResidentCard({
 }
 
 const cardStyles = StyleSheet.create({
-  card: {
-    padding: 16, borderRadius: radius.lg,
-    backgroundColor: 'rgba(49,55,43,0.07)',
-    marginBottom: 10, borderWidth: 1.5, borderColor: 'transparent', gap: 12,
-  },
+  card: { padding: 16, borderRadius: radius.lg, backgroundColor: 'rgba(49,55,43,0.07)', marginBottom: 10, borderWidth: 1.5, borderColor: 'transparent', gap: 12 },
   cardAlert: { backgroundColor: 'rgba(244,67,54,0.05)', borderColor: 'rgba(244,67,54,0.2)' },
   topRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
@@ -181,17 +127,7 @@ const cardStyles = StyleSheet.create({
   fallCountUnresolved: { color: '#F44336', opacity: 1 },
 })
 
-// Resident Detail Modal 
-
-function ResidentDetailModal({
-  resident,
-  liveState,
-  onClose,
-}: {
-  resident: Resident | null
-  liveState: PatientState | null
-  onClose: () => void
-}) {
+function ResidentDetailModal({ resident, liveState, onClose }: { resident: Resident | null; liveState: PatientState | null; onClose: () => void }) {
   if (!resident) return null
   const unresolvedFalls = resident.fallEvents.filter(f => !f.resolved)
   const displayState = liveState?.state ?? resident.currentActivity
@@ -201,65 +137,42 @@ function ResidentDetailModal({
     <Modal visible={!!resident} animationType="slide" presentationStyle="pageSheet">
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['bottom']}>
         <View style={detailStyles.header}>
-          <TouchableOpacity onPress={onClose} style={detailStyles.closeBtn}>
-            <Ionicons name="chevron-down" size={22} color={colors.ink} />
-          </TouchableOpacity>
+          <TouchableOpacity onPress={onClose} style={detailStyles.closeBtn}><Ionicons name="chevron-down" size={22} color={colors.ink} /></TouchableOpacity>
           <Text style={detailStyles.headerTitle}>Resident Profile</Text>
           <View style={{ width: 36 }} />
         </View>
-
         <ScrollView style={{ flex: 1 }} contentContainerStyle={detailStyles.scroll} showsVerticalScrollIndicator={false}>
-          {/* Hero */}
           <View style={detailStyles.heroCard}>
             <View style={detailStyles.heroAvatar}>
-              <Text style={detailStyles.heroAvatarText}>
-                {resident.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-              </Text>
+              <Text style={detailStyles.heroAvatarText}>{resident.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</Text>
             </View>
             <Text style={detailStyles.heroName}>{resident.name}</Text>
-            <Text style={detailStyles.heroMeta}>{displayLocation} · Age {resident.age} · {resident.facility}</Text>
+            <Text style={detailStyles.heroMeta}>{displayLocation} - Age {resident.age} - {resident.facility}</Text>
             <View style={[detailStyles.activityPill, { backgroundColor: activityColor(displayState) + '20' }]}>
               <View style={[detailStyles.activityDot, { backgroundColor: activityColor(displayState) }]} />
-              <Text style={[detailStyles.activityLabel, { color: activityColor(displayState) }]}>
-                {activityLabel(displayState)}
-              </Text>
+              <Text style={[detailStyles.activityLabel, { color: activityColor(displayState) }]}>{activityLabel(displayState)}</Text>
             </View>
-            {liveState && (
-              <Text style={detailStyles.liveTag}>● LIVE</Text>
-            )}
+            {liveState && <Text style={detailStyles.liveTag}>LIVE</Text>}
           </View>
 
           {unresolvedFalls.length > 0 && (
             <View style={detailStyles.alertBanner}>
               <Ionicons name="alert-circle" size={20} color="#F44336" />
               <View style={{ flex: 1 }}>
-                <Text style={detailStyles.alertBannerTitle}>
-                  {unresolvedFalls.length} unresolved fall event{unresolvedFalls.length > 1 ? 's' : ''}
-                </Text>
+                <Text style={detailStyles.alertBannerTitle}>{unresolvedFalls.length} unresolved fall event{unresolvedFalls.length > 1 ? 's' : ''}</Text>
                 <Text style={detailStyles.alertBannerSub}>Requires staff attention</Text>
               </View>
             </View>
           )}
 
-          {/* Stats */}
           <View style={detailStyles.statsRow}>
-            <View style={detailStyles.statBox}>
-              <Text style={detailStyles.statNum}>{resident.fallEvents.length}</Text>
-              <Text style={detailStyles.statLabel}>Total Falls</Text>
-            </View>
+            <View style={detailStyles.statBox}><Text style={detailStyles.statNum}>{resident.fallEvents.length}</Text><Text style={detailStyles.statLabel}>Total Falls</Text></View>
             <View style={detailStyles.statDivider} />
-            <View style={detailStyles.statBox}>
-              <Text style={detailStyles.statNum}>{resident.deviceBattery}%</Text>
-              <Text style={detailStyles.statLabel}>Battery</Text>
-            </View>
+            <View style={detailStyles.statBox}><Text style={detailStyles.statNum}>{resident.deviceBattery}%</Text><Text style={detailStyles.statLabel}>Battery</Text></View>
             <View style={detailStyles.statDivider} />
-            <View style={detailStyles.statBox}>
-              <Text style={detailStyles.statNum}>{resident.contacts.length}</Text>
-              <Text style={detailStyles.statLabel}>Contacts</Text>
-            </View>
+            <View style={detailStyles.statBox}><Text style={detailStyles.statNum}>{resident.contacts.length}</Text><Text style={detailStyles.statLabel}>Contacts</Text></View>
           </View>
 
-          {/* Device */}
           <View style={detailStyles.section}>
             <Text style={detailStyles.sectionLabel}>Device</Text>
             <View style={detailStyles.deviceRow}>
@@ -268,19 +181,12 @@ function ResidentDetailModal({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={detailStyles.deviceName}>{resident.deviceId}</Text>
-                <Text style={detailStyles.deviceSub}>
-                  {resident.deviceConnected ? `Connected · Last seen ${timeAgo(resident.lastSeen)}` : 'Disconnected'}
-                </Text>
+                <Text style={detailStyles.deviceSub}>{resident.deviceConnected ? 'Connected - Last seen ' + timeAgo(resident.lastSeen) : 'Disconnected'}</Text>
               </View>
-              {resident.deviceBattery < 20 && (
-                <View style={detailStyles.lowBatteryTag}>
-                  <Text style={detailStyles.lowBatteryText}>LOW BATTERY</Text>
-                </View>
-              )}
+              {resident.deviceBattery < 20 && <View style={detailStyles.lowBatteryTag}><Text style={detailStyles.lowBatteryText}>LOW BATTERY</Text></View>}
             </View>
           </View>
 
-          {/* Fall history */}
           <View style={detailStyles.section}>
             <Text style={detailStyles.sectionLabel}>Fall History</Text>
             {resident.fallEvents.length === 0 ? (
@@ -288,27 +194,20 @@ function ResidentDetailModal({
                 <Ionicons name="checkmark-circle-outline" size={24} color={colors.ink} style={{ opacity: 0.2 }} />
                 <Text style={detailStyles.emptyText}>No fall events recorded</Text>
               </View>
-            ) : (
-              resident.fallEvents.map(event => (
-                <View key={event.id} style={detailStyles.fallRow}>
-                  <View style={[detailStyles.severityDot, { backgroundColor: severityColor(event.severity) }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={detailStyles.fallLocation}>{event.location}</Text>
-                    <Text style={detailStyles.fallTime}>
-                      {event.timestamp.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                  <View style={[detailStyles.resolvedTag, event.resolved && detailStyles.resolvedTagGreen]}>
-                    <Text style={[detailStyles.resolvedText, event.resolved && detailStyles.resolvedTextGreen]}>
-                      {event.resolved ? 'Resolved' : 'Open'}
-                    </Text>
-                  </View>
+            ) : resident.fallEvents.map(event => (
+              <View key={event.id} style={detailStyles.fallRow}>
+                <View style={[detailStyles.severityDot, { backgroundColor: severityColor(event.severity) }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={detailStyles.fallLocation}>{event.location}</Text>
+                  <Text style={detailStyles.fallTime}>{event.timestamp.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
                 </View>
-              ))
-            )}
+                <View style={[detailStyles.resolvedTag, event.resolved && detailStyles.resolvedTagGreen]}>
+                  <Text style={[detailStyles.resolvedText, event.resolved && detailStyles.resolvedTextGreen]}>{event.resolved ? 'Resolved' : 'Open'}</Text>
+                </View>
+              </View>
+            ))}
           </View>
 
-          {/* Contacts */}
           <View style={detailStyles.section}>
             <Text style={detailStyles.sectionLabel}>Emergency Contacts</Text>
             {resident.contacts.map(contact => (
@@ -318,9 +217,7 @@ function ResidentDetailModal({
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[detailStyles.contactName, contact.isPrimary && detailStyles.contactNameLight]}>{contact.name}</Text>
-                  <Text style={[detailStyles.contactRel, contact.isPrimary && detailStyles.contactRelLight]}>
-                    {contact.relation} · {contact.isPrimary ? 'Primary' : 'Secondary'}
-                  </Text>
+                  <Text style={[detailStyles.contactRel, contact.isPrimary && detailStyles.contactRelLight]}>{contact.relation} - {contact.isPrimary ? 'Primary' : 'Secondary'}</Text>
                   <Text style={[detailStyles.contactPhone, contact.isPrimary && detailStyles.contactPhoneLight]}>{contact.phone}</Text>
                 </View>
               </View>
@@ -364,7 +261,7 @@ const detailStyles = StyleSheet.create({
   lowBatteryText: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 9, color: '#F44336', letterSpacing: 0.5 },
   emptyBox: { alignItems: 'center', gap: 6, paddingVertical: 20 },
   emptyText: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 13, color: colors.ink, opacity: 0.3 },
-  fallRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: 'rgba(49,55,43,0.05)', borderRadius: radius.md },
+  fallRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: 'rgba(49,55,43,0.05)', borderRadius: radius.lg },
   severityDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
   fallLocation: { fontFamily: 'NunitoSans_700Bold', fontSize: 13.5, color: colors.ink },
   fallTime: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 11.5, color: colors.ink, opacity: 0.38, marginTop: 2 },
@@ -372,7 +269,7 @@ const detailStyles = StyleSheet.create({
   resolvedTagGreen: { backgroundColor: 'rgba(76,175,80,0.12)' },
   resolvedText: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10, color: '#F44336' },
   resolvedTextGreen: { color: '#4CAF50' },
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: 'rgba(49,55,43,0.06)', borderRadius: radius.md },
+  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: 'rgba(49,55,43,0.06)', borderRadius: radius.lg },
   contactRowPrimary: { backgroundColor: colors.ink },
   contactIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: 'rgba(49,55,43,0.1)', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   contactIconPrimary: { backgroundColor: 'rgba(251,247,236,0.12)' },
@@ -384,26 +281,15 @@ const detailStyles = StyleSheet.create({
   contactPhoneLight: { color: colors.bg, opacity: 0.5 },
 })
 
-// Main Screen 
-
-export default function ManagerResidentsScreen() {
+function ManagerDashboard({ serverIp }: { serverIp: string }) {
   const insets = useSafeAreaInsets()
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null)
-  const [serverIp, setServerIp] = useState(SERVER_IP)
-
-  useEffect(() => {
-    AsyncStorage.getItem('server_ip').then(ip => { if (ip) setServerIp(ip) })
-    setupNotifications()
-  }, [])
 
   const handleFall = useCallback(async (event: FallEvent) => {
     await fireManagerNotification(event.patient_id, event.room, event.type)
   }, [])
 
-  const { patients, status } = useServerWebSocket({
-    serverIp,
-    onFall: handleFall,
-  })
+  const { patients, status } = useServerWebSocket({ serverIp, onFall: handleFall })
 
   const getLiveState = (resident: Resident): PatientState | null => {
     const keys = Object.keys(patients)
@@ -413,31 +299,22 @@ export default function ManagerResidentsScreen() {
     return key ? patients[key] : null
   }
 
-  const totalAlerts = MOCK_RESIDENTS.reduce((sum, r) =>
-    sum + r.fallEvents.filter(f => !f.resolved).length, 0)
-
+  const totalAlerts = MOCK_RESIDENTS.reduce((sum, r) => sum + r.fallEvents.filter(f => !f.resolved).length, 0)
   const wsStatusColor = status === 'connected' ? '#4CAF50' : status === 'connecting' ? '#FF9800' : '#F44336'
-  const wsStatusLabel = status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting…' : 'Offline'
+  const wsStatusLabel = status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline'
 
   const handleSignOut = async () => {
     Alert.alert('Sign out', 'Sign out of manager mode?', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out', style: 'destructive', onPress: async () => {
-          await AsyncStorage.removeItem('user_role')
-          router.replace('/role-select')
-        }
-      },
+      { text: 'Sign Out', style: 'destructive', onPress: async () => {
+        await AsyncStorage.removeItem('user_role'); router.replace('/role-select')
+      }},
     ])
   }
 
   return (
     <View style={[styles.safe, { paddingTop: insets.top }]}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.greeting}>Sunrise Care Home</Text>
@@ -471,12 +348,7 @@ export default function ManagerResidentsScreen() {
 
         <Text style={styles.listLabel}>All Residents</Text>
         {MOCK_RESIDENTS.map(r => (
-          <ResidentCard
-            key={r.id}
-            resident={r}
-            liveState={getLiveState(r)}
-            onPress={() => setSelectedResident(r)}
-          />
+          <ResidentCard key={r.id} resident={r} liveState={getLiveState(r)} onPress={() => setSelectedResident(r)} />
         ))}
       </ScrollView>
 
@@ -487,6 +359,19 @@ export default function ManagerResidentsScreen() {
       />
     </View>
   )
+}
+
+export default function ManagerResidentsScreen() {
+  const [serverIp, setServerIp] = useState<string | null>(null)
+
+  useEffect(() => {
+    setupNotifications()
+    AsyncStorage.getItem('server_ip').then(ip => setServerIp(ip ?? ''))
+  }, [])
+
+  if (serverIp === null) return <View style={{ flex: 1, backgroundColor: colors.bg }} />
+
+  return <ManagerDashboard serverIp={serverIp} />
 }
 
 const styles = StyleSheet.create({
@@ -502,7 +387,7 @@ const styles = StyleSheet.create({
   wsLabel: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10 },
   signOutBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(49,55,43,0.07)', alignItems: 'center', justifyContent: 'center' },
   summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 24 },
-  summaryChip: { flex: 1, backgroundColor: 'rgba(49,55,43,0.07)', borderRadius: radius.md, paddingVertical: 14, alignItems: 'center', gap: 2 },
+  summaryChip: { flex: 1, backgroundColor: 'rgba(49,55,43,0.07)', borderRadius: radius.lg, paddingVertical: 14, alignItems: 'center', gap: 2 },
   summaryChipAlert: { backgroundColor: 'rgba(244,67,54,0.08)', borderWidth: 1, borderColor: 'rgba(244,67,54,0.2)' },
   summaryNum: { fontFamily: 'NunitoSans_900Black', fontSize: 22, color: colors.ink },
   summaryNumAlert: { color: '#F44336' },

@@ -154,7 +154,7 @@ export default function StepCalibrate() {
 
           <TimerRing progress={progress} secondsLeft={secondsLeft} running={calibState === 'running'} done={calibState === 'done'} />
 
-          <StepItem num={1} text="Attach the Arduino sensor to your wrist or belt clip." active={calibState === 'ready' || calibState === 'sending'} />
+          <StepItem num={1} text="Attach the Arduino sensor to your waist using the belt clip." active={calibState === 'ready' || calibState === 'sending'} />
           <StepItem num={2} text="Tap Start Walking — the app will send a calibration command to your sensor, then walk at your normal pace for 20 seconds." active={calibState === 'running'} />
           <StepItem num={3} text="Stay still once the timer ends — your sensor will automatically begin fall detection." active={calibState === 'done'} />
 

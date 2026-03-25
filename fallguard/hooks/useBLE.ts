@@ -8,13 +8,8 @@ const BLE_PREDICTION_UUID = '19B10002-E8F2-537E-4F6C-D104768A1214'
 const BLE_CONFIDENCE_UUID = '19B10003-E8F2-537E-4F6C-D104768A1214'
 
 const STATE_LABELS: Record<number, string> = {
-  0: 'walking',
-  1: 'stumbling',
-  2: 'idle_standing',
-  3: 'idle_sitting',
-  4: 'upstairs',
-  5: 'downstairs',
-  6: 'fall',
+  0: 'walking', 1: 'stumbling', 2: 'idle_standing',
+  3: 'idle_sitting', 4: 'upstairs', 5: 'downstairs', 6: 'fall',
 }
 
 export type BLEStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
@@ -25,6 +20,7 @@ export type BLEState = {
   predictionIndex: number
   predictionLabel: string
   confidence: number
+  reconnect: () => void
 }
 
 type Options = {
@@ -48,11 +44,7 @@ export function useBLE({ deviceId, onFallDetected, enabled = true }: Options): B
 
   const decodeValue = (base64: string | null): number => {
     if (!base64) return -1
-    try {
-      return atob(base64).charCodeAt(0)
-    } catch {
-      return -1
-    }
+    try { return atob(base64).charCodeAt(0) } catch { return -1 }
   }
 
   const scheduleReconnect = useCallback(() => {
@@ -63,37 +55,20 @@ export function useBLE({ deviceId, onFallDetected, enabled = true }: Options): B
   }, [])
 
   const subscribeToCharacteristics = useCallback((device: Device) => {
-    const manager = bleManagerRef.current
-    if (!manager) return
-
-    device.monitorCharacteristicForService(
-      BLE_SERVICE_UUID,
-      BLE_FALL_ALERT_UUID,
-      (error, characteristic) => {
-        if (error || !characteristic?.value || !mountedRef.current) return
-        const value = decodeValue(characteristic.value)
-        setFallAlert(value === 1)
-        if (value === 1) onFallRef.current()
-      }
-    )
-
-    device.monitorCharacteristicForService(
-      BLE_SERVICE_UUID,
-      BLE_PREDICTION_UUID,
-      (error, characteristic) => {
-        if (error || !characteristic?.value || !mountedRef.current) return
-        setPredictionIndex(decodeValue(characteristic.value))
-      }
-    )
-
-    device.monitorCharacteristicForService(
-      BLE_SERVICE_UUID,
-      BLE_CONFIDENCE_UUID,
-      (error, characteristic) => {
-        if (error || !characteristic?.value || !mountedRef.current) return
-        setConfidence(decodeValue(characteristic.value))
-      }
-    )
+    device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_FALL_ALERT_UUID, (error, characteristic) => {
+      if (error || !characteristic?.value || !mountedRef.current) return
+      const value = decodeValue(characteristic.value)
+      setFallAlert(value === 1)
+      if (value === 1) onFallRef.current()
+    })
+    device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_PREDICTION_UUID, (error, characteristic) => {
+      if (error || !characteristic?.value || !mountedRef.current) return
+      setPredictionIndex(decodeValue(characteristic.value))
+    })
+    device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_CONFIDENCE_UUID, (error, characteristic) => {
+      if (error || !characteristic?.value || !mountedRef.current) return
+      setConfidence(decodeValue(characteristic.value))
+    })
   }, [])
 
   const connect = useCallback(async () => {
@@ -109,10 +84,7 @@ export function useBLE({ deviceId, onFallDetected, enabled = true }: Options): B
 
     try {
       const bleState = await manager.state()
-      if (bleState !== State.PoweredOn) {
-        scheduleReconnect()
-        return
-      }
+      if (bleState !== State.PoweredOn) { scheduleReconnect(); return }
 
       const connectedDevices = await manager.connectedDevices([BLE_SERVICE_UUID])
       const existing = connectedDevices.find(d => d.id === deviceId)
@@ -151,16 +123,12 @@ export function useBLE({ deviceId, onFallDetected, enabled = true }: Options): B
 
   useEffect(() => {
     mountedRef.current = true
-
     if (!enabled || !deviceId) return
 
     bleManagerRef.current = new BleManager()
 
     const sub = bleManagerRef.current.onStateChange((state) => {
-      if (state === State.PoweredOn) {
-        sub.remove()
-        connect()
-      }
+      if (state === State.PoweredOn) { sub.remove(); connect() }
     }, true)
 
     return () => {
@@ -178,5 +146,6 @@ export function useBLE({ deviceId, onFallDetected, enabled = true }: Options): B
     predictionIndex,
     predictionLabel: STATE_LABELS[predictionIndex] ?? 'unknown',
     confidence,
+    reconnect: connect,
   }
 }
