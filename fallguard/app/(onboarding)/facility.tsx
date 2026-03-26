@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react'
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -10,10 +9,10 @@ import { useOnboardingStore } from '../../store/onboardingStore'
 import { Ionicons } from '@expo/vector-icons'
 
 const FACILITIES = [
-  { id: 'sunrise',   name: 'Sunrise Care Home',      location: 'Bandar Utama, Selangor' },
-  { id: 'greenview', name: 'Greenview Residence',     location: 'Petaling Jaya, Selangor' },
-  { id: 'harmony',   name: 'Harmony Senior Living',   location: 'Shah Alam, Selangor' },
-  { id: 'meadows',   name: 'The Meadows',             location: 'Subang Jaya, Selangor' },
+  { id: 'sunrise',   name: 'Sunrise Care Home',    location: 'Bandar Utama, Selangor' },
+  { id: 'greenview', name: 'Greenview Residence',   location: 'Petaling Jaya, Selangor' },
+  { id: 'harmony',   name: 'Harmony Senior Living', location: 'Shah Alam, Selangor' },
+  { id: 'meadows',   name: 'The Meadows',           location: 'Subang Jaya, Selangor' },
 ]
 
 function FacilityOption({ facility, selected, onSelect }: { facility: typeof FACILITIES[0]; selected: boolean; onSelect: () => void }) {
@@ -47,25 +46,70 @@ const optStyles = StyleSheet.create({
   radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.bg },
 })
 
+async function sendRegistrationToServer(payload: object, serverIp: string, port: string) {
+  return new Promise<void>((resolve) => {
+    if (!serverIp) { resolve(); return }
+    try {
+      const ws = new WebSocket(`ws://${serverIp}:${port}`)
+      const timer = setTimeout(() => { ws.close(); resolve() }, 5000)
+      ws.onopen = () => {
+        ws.send(JSON.stringify(payload))
+        clearTimeout(timer)
+        setTimeout(() => { ws.close(); resolve() }, 500)
+      }
+      ws.onerror = () => { clearTimeout(timer); resolve() }
+    } catch { resolve() }
+  })
+}
+
 export default function StepFacility() {
   const insets = useSafeAreaInsets()
-  const { name, setFacility, contacts, arduinoDeviceId } = useOnboardingStore()
+  const { name, age, setFacility, contacts, arduinoDeviceId } = useOnboardingStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [room, setRoom] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const selectedFacility = FACILITIES.find((f) => f.id === selectedId)
   const canContinue = !!selectedFacility && room.trim().length > 0
 
   const handleComplete = async () => {
     if (!selectedFacility || !room.trim()) return
+    setLoading(true)
     setFacility(selectedFacility.name, selectedFacility.location, room.trim())
+
     try {
       await AsyncStorage.setItem('onboarding_complete', 'true')
       await AsyncStorage.setItem('user_data', JSON.stringify({
         name, facility: selectedFacility.name, room: room.trim(),
         arduinoId: arduinoDeviceId, contactCount: contacts.length,
       }))
-    } catch (e) { console.warn('AsyncStorage error', e) }
+
+      // Send registration to server over WebSocket
+      const serverIp = await AsyncStorage.getItem('server_ip') ?? ''
+      const serverPort = await AsyncStorage.getItem('server_port') ?? '5001'
+
+      if (serverIp && arduinoDeviceId) {
+        const patientId = 'PATIENT_01' // matches Arduino DEVICE_NAME
+        await sendRegistrationToServer({
+          type: 'register',
+          patient_id: patientId,
+          name,
+          age,
+          room: room.trim(),
+          facility: selectedFacility.name,
+          contacts: contacts.map(c => ({
+            name: c.name,
+            phone: c.phone,
+            relation: c.relation,
+            isPrimary: c.isPrimary,
+          })),
+        }, serverIp, serverPort)
+      }
+    } catch (e) {
+      console.warn('Onboarding completion error', e)
+    }
+
+    setLoading(false)
     router.replace('/(tabs)')
   }
 
@@ -102,7 +146,7 @@ export default function StepFacility() {
               )}
             </ScrollView>
 
-            <CTAButton label="Finish Setup" onPress={handleComplete} disabled={!canContinue} />
+            <CTAButton label={loading ? 'Setting up...' : 'Finish Setup'} onPress={handleComplete} disabled={!canContinue || loading} />
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
