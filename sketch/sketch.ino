@@ -138,7 +138,7 @@ struct FallDecision {
 
 // methods that all handle converting the raw data to printable values
 void printHeader() {
-  SAFE_PRINTLN_MACRO("timestamp_ms,ax,ay,az,gx,gy,gz");
+  SAFE_PRINTLN_MACRO("timestamp_ms,ax,ay,az");
 }
 
 void printModeHelp() {
@@ -208,6 +208,15 @@ void announceMode(bool includeHint = true) { //hint just prints extra info
 void resetWindowBuffer() { 
   // clears the window fill index so new records start writing from the beginning
   windowIndex = 0;
+}
+
+//holds the inference values until there are 90 then pushes them out together so data appears continuous
+void slideWindow(int hopSamples) {
+  int retain = kWindowSamples - hopSamples;
+  memmove(xWindow, xWindow + hopSamples, retain * sizeof(float));
+  memmove(yWindow, yWindow + hopSamples, retain * sizeof(float));
+  memmove(zWindow, zWindow + hopSamples, retain * sizeof(float));
+  windowIndex = retain;
 }
 
 void resetCalibration() {
@@ -317,20 +326,20 @@ void extractFeatureVector(float* outFeatures) {
 // incremenetal mean and variance updates using Welford's algorithm
 // updates stats in each window without storing all past feature vectors 
 void updateCalibration(const float* featureVector) {
-  count++;
+  calibrationWindowCount++;
 
   // step 1: update running mean
   for (int i = 0; i < kFeatureCount; ++i) {
     const float delta = featureVector[i] - calibrationMean[i];
-    calibrationMean[i] += delta / count;
+    calibrationMean[i] += delta / calibrationWindowCount;
   
     // step 2: update M2 (sum of squared deviations)
     const float delta2 = featureVector[i] - calibrationMean[i];
     calibrationM2[i] += delta * delta2;
 
     // standard deviation from M2 (which requires more than 2 samples)
-    if (count > 1) {
-      calibrationStd[i] = sqrtf(calibrationM2[i] / (count - 1));
+    if (calibrationWindowCount > 1) {
+      calibrationStd[i] = sqrtf(calibrationM2[i] / (calibrationWindowCount - 1));
 
       if (calibrationStd[i] < 1e-6f){
         // guard againnst div by 0 errors
@@ -339,7 +348,7 @@ void updateCalibration(const float* featureVector) {
     }
   }
 
-  if (count >= kCalibrationWindowTarget) {
+  if (calibrationWindowCount >= kCalibrationWindowTarget) {
     calibrationReady = true;
   }
 }
@@ -492,8 +501,7 @@ FallDecision makeFallDecision(const InferenceSummary& summary, const float* rawF
 
 
   // check for impact
-  decision.impactDetected = MAGNITUDE_FORCE_THRESHOLD || magnitudeRange >= FALL_IMPACT_RANGE_THRESHOLD;
-
+ decision.impactDetected = magnitudeMax >= MAGNITUDE_FORCE_THRESHOLD || magnitudeRange >= FALL_IMPACT_RANGE_THRESHOLD;
 // check if patient still after fall
   decision.lowMotionDetected = magnitudeStd <= PATIENT_STILLNESSTHRESHOLD; // check if person is still after to make sure it actually a fall
 
@@ -783,7 +791,7 @@ void printInferenceSummary(const InferenceSummary& summary, const FallDecision& 
   SAFE_PRINT_MACRO(calibrationReady ? 1 : 0);
   
   SAFE_PRINT_MACRO(",cal_count=");             
-  SAFE_PRINT_MACRO(calibrationWindowCount);
+  SAFE_PRINTLN_MACRO(calibrationWindowCount);
 }
 
 //returns the current sampling interval from the imu
@@ -869,7 +877,12 @@ void processWindowIfReady() {
       #endif
     }
   }
-  resetWindowBuffer();
+
+  if (runtimeMode == MODE_INFER) {
+    slideWindow(10); // 90% overlap, inference every 0.2s
+  } else {
+    resetWindowBuffer(); // calibrate uses full non-overlapping windows
+  }
 }
 
 // SETUP AND LOOP ENTRY POINTS
@@ -948,6 +961,7 @@ void loop() {
   IMU.readAcceleration(ax, ay, az);
 
   if (runtimeMode == MODE_RECORD) {
+    printHeader();
     SAFE_PRINT_MACRO(now);
     SAFE_PRINT_MACRO(",");
 
@@ -957,8 +971,7 @@ void loop() {
     SAFE_PRINT_WITH_DECIMAL_MACRO(ay, 4);
     SAFE_PRINT_MACRO(",");
 
-    SAFE_PRINT_WITH_DECIMAL_MACRO(az, 4);
-    SAFE_PRINT_MACRO(",");
+    SAFE_PRINTLN_WITH_DECIMAL_MACRO(az, 4);
     return;
   }
 
