@@ -325,8 +325,9 @@ void extractFeatureVector(float* outFeatures) {
 
 // incremenetal mean and variance updates using Welford's algorithm
 // updates stats in each window without storing all past feature vectors 
+//properly tracks number of windows
 void updateCalibration(const float* featureVector) {
-  calibrationWindowCount++;
+  calibrationWindowCount++; //changed count as it was undefined
 
   // step 1: update running mean
   for (int i = 0; i < kFeatureCount; ++i) {
