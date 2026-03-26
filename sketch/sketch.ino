@@ -316,21 +316,22 @@ void extractFeatureVector(float* outFeatures) {
 
 // incremenetal mean and variance updates using Welford's algorithm
 // updates stats in each window without storing all past feature vectors 
+//properly tracks number of windows
 void updateCalibration(const float* featureVector) {
-  count++;
+  calibrationWindowCount++; //changed count as it was undefined
 
   // step 1: update running mean
   for (int i = 0; i < kFeatureCount; ++i) {
     const float delta = featureVector[i] - calibrationMean[i];
-    calibrationMean[i] += delta / count;
+    calibrationMean[i] += delta / calibrationWindowCount;
   
     // step 2: update M2 (sum of squared deviations)
     const float delta2 = featureVector[i] - calibrationMean[i];
     calibrationM2[i] += delta * delta2;
 
     // standard deviation from M2 (which requires more than 2 samples)
-    if (count > 1) {
-      calibrationStd[i] = sqrtf(calibrationM2[i] / (count - 1));
+    if (calibrationWindowCount > 1) {
+      calibrationStd[i] = sqrtf(calibrationM2[i] / (calibrationWindowCount - 1));
 
       if (calibrationStd[i] < 1e-6f){
         // guard againnst div by 0 errors
@@ -339,7 +340,7 @@ void updateCalibration(const float* featureVector) {
     }
   }
 
-  if (count >= kCalibrationWindowTarget) {
+  if (calibrationWindowCount >= kCalibrationWindowTarget) {
     calibrationReady = true;
   }
 }
