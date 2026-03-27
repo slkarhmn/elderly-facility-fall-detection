@@ -10,6 +10,7 @@ export type EmergencyContact = {
 
 export type PatientProfile = {
   name: string
+  age?: string
   room: string
   facility: string
   contacts: EmergencyContact[]
@@ -32,9 +33,10 @@ export type FallEvent = {
 
 type ServerMessage =
   | { type: 'snapshot'; patients: Record<string, PatientState> }
-  | { type: 'fall' | 'fall_likely'; patient_id: string; room: string }
+  | { type: 'fall' | 'fall_likely'; patient_id: string; room: string; profile?: PatientProfile }
   | { type: 'state_change' | 'heartbeat'; patient_id: string; room: string; rssi: number; state_index: number; state: string; location: string; profile?: PatientProfile }
   | { type: 'registered'; patient_id: string }
+  | { type: 'profile_update'; patient_id: string; profile: PatientProfile }
 
 type RegistrationPayload = {
   patient_id: string
@@ -77,14 +79,17 @@ export function useServerWebSocket({ serverIp, port = 5001, onFall }: Options) {
     ws.onmessage = (event) => {
       try {
         const msg: ServerMessage = JSON.parse(event.data)
+
         if (msg.type === 'snapshot') {
           setPatients(msg.patients)
+
         } else if (msg.type === 'fall' || msg.type === 'fall_likely') {
           const fallEvent: FallEvent = {
             type: msg.type, patient_id: msg.patient_id, room: msg.room, timestamp: new Date(),
           }
           setRecentFalls(prev => [fallEvent, ...prev].slice(0, 50))
           onFallRef.current?.(fallEvent)
+
         } else if (msg.type === 'state_change' || msg.type === 'heartbeat') {
           setPatients(prev => ({
             ...prev,
@@ -93,9 +98,25 @@ export function useServerWebSocket({ serverIp, port = 5001, onFall }: Options) {
               state: msg.state,
               state_index: msg.state_index,
               rooms: { ...(prev[msg.patient_id]?.rooms ?? {}), [msg.room]: msg.rssi },
+              // Server profile takes priority; fall back to existing local profile
               profile: msg.profile ?? prev[msg.patient_id]?.profile,
             },
           }))
+
+        } else if (msg.type === 'profile_update') {
+          // Resident just registered — update their profile immediately
+          // even before any scanner packet arrives
+          setPatients(prev => ({
+            ...prev,
+            [msg.patient_id]: {
+              location: prev[msg.patient_id]?.location ?? msg.profile.room,
+              state: prev[msg.patient_id]?.state ?? 'offline',
+              state_index: prev[msg.patient_id]?.state_index ?? null,
+              rooms: prev[msg.patient_id]?.rooms ?? {},
+              profile: msg.profile,
+            },
+          }))
+
         } else if (msg.type === 'registered') {
           console.log('[WS] Registration confirmed for', msg.patient_id)
         }

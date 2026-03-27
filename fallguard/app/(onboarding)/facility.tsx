@@ -15,6 +15,22 @@ const FACILITIES = [
   { id: 'meadows',   name: 'The Meadows',           location: 'Subang Jaya, Selangor' },
 ]
 
+export type LocalResident = {
+  id: string
+  name: string
+  age: string
+  room: string
+  facility: string
+  arduinoId: string | null
+  registeredAt: string
+  contacts: {
+    name: string
+    phone: string
+    relation: string
+    isPrimary: boolean
+  }[]
+}
+
 function FacilityOption({ facility, selected, onSelect }: { facility: typeof FACILITIES[0]; selected: boolean; onSelect: () => void }) {
   return (
     <TouchableOpacity style={[optStyles.pill, selected && optStyles.pillSelected]} onPress={onSelect} activeOpacity={0.75}>
@@ -46,6 +62,18 @@ const optStyles = StyleSheet.create({
   radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.bg },
 })
 
+async function saveResidentLocally(resident: LocalResident) {
+  try {
+    const raw = await AsyncStorage.getItem('registered_residents')
+    const existing: LocalResident[] = raw ? JSON.parse(raw) : []
+    const updated = existing.filter(r => r.id !== resident.id)
+    updated.push(resident)
+    await AsyncStorage.setItem('registered_residents', JSON.stringify(updated))
+  } catch (e) {
+    console.warn('Failed to save resident locally', e)
+  }
+}
+
 async function sendRegistrationToServer(payload: object, serverIp: string, port: string) {
   return new Promise<void>((resolve) => {
     if (!serverIp) { resolve(); return }
@@ -55,7 +83,7 @@ async function sendRegistrationToServer(payload: object, serverIp: string, port:
       ws.onopen = () => {
         ws.send(JSON.stringify(payload))
         clearTimeout(timer)
-        setTimeout(() => { ws.close(); resolve() }, 500)
+        setTimeout(() => { ws.close(); resolve() }, 800)
       }
       ws.onerror = () => { clearTimeout(timer); resolve() }
     } catch { resolve() }
@@ -84,12 +112,33 @@ export default function StepFacility() {
         arduinoId: arduinoDeviceId, contactCount: contacts.length,
       }))
 
-      // Send registration to server over WebSocket
+      const patientId = 'PATIENT_01'
+
+      const residentContacts = contacts.map(c => ({
+        name: c.name,
+        phone: c.phone,
+        relation: c.relation,
+        isPrimary: c.isPrimary,
+      }))
+
+      // 1. Always save locally — manager sees resident even without server
+      const localResident: LocalResident = {
+        id: patientId,
+        name,
+        age,
+        room: room.trim(),
+        facility: selectedFacility.name,
+        arduinoId: arduinoDeviceId,
+        registeredAt: new Date().toISOString(),
+        contacts: residentContacts,
+      }
+      await saveResidentLocally(localResident)
+
+      // 2. Send to server if IP is configured — no Arduino gate
       const serverIp = await AsyncStorage.getItem('server_ip') ?? ''
       const serverPort = await AsyncStorage.getItem('server_port') ?? '5001'
 
-      if (serverIp && arduinoDeviceId) {
-        const patientId = 'PATIENT_01' // matches Arduino DEVICE_NAME
+      if (serverIp) {
         await sendRegistrationToServer({
           type: 'register',
           patient_id: patientId,
@@ -97,14 +146,13 @@ export default function StepFacility() {
           age,
           room: room.trim(),
           facility: selectedFacility.name,
-          contacts: contacts.map(c => ({
-            name: c.name,
-            phone: c.phone,
-            relation: c.relation,
-            isPrimary: c.isPrimary,
-          })),
+          contacts: residentContacts,
         }, serverIp, serverPort)
+        console.log('[Registration] Sent to server:', serverIp + ':' + serverPort)
+      } else {
+        console.log('[Registration] No server IP — saved locally only')
       }
+
     } catch (e) {
       console.warn('Onboarding completion error', e)
     }

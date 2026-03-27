@@ -1,72 +1,154 @@
-import { useCallback, useRef } from 'react'
-import { useBLE, BLEState } from './useBLE'
-import { useServerWebSocket, FallEvent, PatientState } from './useServerWebSocket'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
-type Options = {
-  deviceId: string | null
-  patientId: string
-  serverIp: string
-  onFall: () => void
-}
+export type ActivityState =
+  | 'walking'
+  | 'stumbling'
+  | 'idle_standing'
+  | 'idle_sitting'
+  | 'upstairs'
+  | 'downstairs'
+  | 'fall'
+  | 'offline'
+  | 'unknown'
+
+export type FallDetectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error' | 'no_server'
 
 export type FallDetectionState = {
-  ble: BLEState
-  serverState: PatientState | null
-  wsStatus: 'connecting' | 'connected' | 'disconnected' | 'error'
+  activity: ActivityState
+  location: string | null
+  status: FallDetectionStatus
+  lastUpdated: Date | null
   fallDetected: boolean
-  activityLabel: string
-  activityIndex: number
-  room: string | null
-  bleReconnect: () => void
 }
 
-export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Options): FallDetectionState {
-  const onFallRef = useRef(onFall)
-  onFallRef.current = onFall
+const PATIENT_ID = 'PATIENT_01'
+const RECONNECT_DELAY = 3000
 
-  const fallFiredRef = useRef(false)
+export function useFallDetection() {
+  const [state, setState] = useState<FallDetectionState>({
+    activity: 'offline',
+    location: null,
+    status: 'disconnected',
+    lastUpdated: null,
+    fallDetected: false,
+  })
 
-  const handleBLEFall = useCallback(() => {
-    if (fallFiredRef.current) return
-    fallFiredRef.current = true
-    onFallRef.current()
-    setTimeout(() => { fallFiredRef.current = false }, 30_000)
+  const wsRef = useRef<WebSocket | null>(null)
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const serverIpRef = useRef<string>('')
+  const serverPortRef = useRef<string>('5001')
+  const mountedRef = useRef(true)
+
+  const connect = useCallback(() => {
+    const ip = serverIpRef.current
+    if (!ip) {
+      setState(prev => ({ ...prev, status: 'no_server' }))
+      return
+    }
+
+    if (wsRef.current) wsRef.current.close()
+    if (!mountedRef.current) return
+
+    setState(prev => ({ ...prev, status: 'connecting' }))
+    const ws = new WebSocket(`ws://${ip}:${serverPortRef.current}`)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      if (!mountedRef.current) return
+      setState(prev => ({ ...prev, status: 'connected' }))
+      if (reconnectTimer.current) { clearTimeout(reconnectTimer.current); reconnectTimer.current = null }
+    }
+
+    ws.onmessage = (event) => {
+      if (!mountedRef.current) return
+      try {
+        const msg = JSON.parse(event.data)
+
+        if (msg.type === 'snapshot') {
+          const myState = msg.patients?.[PATIENT_ID]
+          if (myState) {
+            setState(prev => ({
+              ...prev,
+              activity: myState.state ?? 'offline',
+              location: myState.location ?? null,
+              lastUpdated: new Date(),
+              fallDetected: myState.state === 'fall',
+            }))
+          }
+
+        } else if (
+          (msg.type === 'state_change' || msg.type === 'heartbeat') &&
+          msg.patient_id === PATIENT_ID
+        ) {
+          setState(prev => ({
+            ...prev,
+            activity: msg.state ?? 'unknown',
+            location: msg.location ?? null,
+            lastUpdated: new Date(),
+            fallDetected: msg.state === 'fall',
+          }))
+
+        } else if (
+          (msg.type === 'fall' || msg.type === 'fall_likely') &&
+          msg.patient_id === PATIENT_ID
+        ) {
+          setState(prev => ({
+            ...prev,
+            activity: 'fall',
+            fallDetected: true,
+            lastUpdated: new Date(),
+          }))
+        }
+
+      } catch (e) {
+        console.warn('[FallDetection] Failed to parse message:', event.data)
+      }
+    }
+
+    ws.onerror = () => {
+      if (!mountedRef.current) return
+      setState(prev => ({ ...prev, status: 'error' }))
+    }
+
+    ws.onclose = () => {
+      if (!mountedRef.current) return
+      setState(prev => ({ ...prev, status: 'disconnected', activity: 'offline' }))
+      reconnectTimer.current = setTimeout(() => connect(), RECONNECT_DELAY)
+    }
   }, [])
 
-  const handleWSFall = useCallback((event: FallEvent) => {
-    if (event.patient_id !== patientId) return
-    if (event.type !== 'fall') return
-    if (fallFiredRef.current) return
-    fallFiredRef.current = true
-    onFallRef.current()
-    setTimeout(() => { fallFiredRef.current = false }, 30_000)
-  }, [patientId])
+  useEffect(() => {
+    mountedRef.current = true
 
-  const ble = useBLE({
-    deviceId,
-    onFallDetected: handleBLEFall,
-    enabled: !!deviceId,
-  })
+    async function init() {
+      const [ip, port] = await Promise.all([
+        AsyncStorage.getItem('server_ip'),
+        AsyncStorage.getItem('server_port'),
+      ])
+      serverIpRef.current = ip ?? ''
+      serverPortRef.current = port ?? '5001'
+      connect()
+    }
+    init()
 
-  const { patients, status: wsStatus } = useServerWebSocket({
-    serverIp,
-    onFall: handleWSFall,
-  })
+    return () => {
+      mountedRef.current = false
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      wsRef.current?.close()
+    }
+  }, [connect])
 
-  const serverState = patients[patientId] ?? null
-  const bleActive = ble.status === 'connected' && ble.predictionIndex >= 0
-  const activityIndex = bleActive ? ble.predictionIndex : (serverState?.state_index ?? -1)
-  const activityLabel = bleActive ? ble.predictionLabel : (serverState?.state ?? 'unknown')
-  const fallDetected = ble.fallAlert || serverState?.state_index === 6
+  // Allow re-connecting after settings change
+  const reconnect = useCallback(async () => {
+    const [ip, port] = await Promise.all([
+      AsyncStorage.getItem('server_ip'),
+      AsyncStorage.getItem('server_port'),
+    ])
+    serverIpRef.current = ip ?? ''
+    serverPortRef.current = port ?? '5001'
+    connect()
+  }, [connect])
 
-  return {
-    ble,
-    serverState,
-    wsStatus,
-    fallDetected,
-    activityLabel,
-    activityIndex,
-    room: serverState?.location ?? null,
-    bleReconnect: ble.reconnect,
-  }
+  return { ...state, reconnect }
 }

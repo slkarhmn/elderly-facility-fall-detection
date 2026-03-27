@@ -1,19 +1,12 @@
-
-import React from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { View, Text, StyleSheet, ScrollView } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import { colors, radius } from '../../constants/theme'
-import { MOCK_RESIDENTS, FallEvent, Resident } from '../../store/managerMockData'
+import { useServerWebSocket, FallEvent } from '../../hooks/useServerWebSocket'
 
-type FallWithResident = FallEvent & { residentName: string; room: string }
-
-function severityColor(s: FallEvent['severity']) {
-  return s === 'high' ? '#F44336' : s === 'medium' ? '#FF5722' : '#FF9800'
-}
-function severityLabel(s: FallEvent['severity']) {
-  return s === 'high' ? 'High' : s === 'medium' ? 'Medium' : 'Low'
-}
+type FallWithName = FallEvent & { residentName: string }
 
 function timeAgo(date: Date): string {
   const diffMs = Date.now() - date.getTime()
@@ -25,84 +18,90 @@ function timeAgo(date: Date): string {
   return `${Math.floor(diffHrs / 24)}d ago`
 }
 
-export default function ManagerAlertsScreen() {
+function severityColor(type: FallEvent['type']) {
+  return type === 'fall' ? '#F44336' : '#FF9800'
+}
+
+function severityLabel(type: FallEvent['type']) {
+  return type === 'fall' ? 'Fall' : 'Fall Likely'
+}
+
+function AlertCard({ event }: { event: FallWithName }) {
+  const color = severityColor(event.type)
+  return (
+    <View style={[alertCardStyles.card, { borderLeftColor: color }]}>
+      <View style={alertCardStyles.topRow}>
+        <View style={[alertCardStyles.iconWrap, { backgroundColor: color + '15' }]}>
+          <Ionicons name="alert-circle" size={18} color={color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={alertCardStyles.name}>{event.residentName}</Text>
+          <Text style={alertCardStyles.room}>{event.room}</Text>
+        </View>
+        <View style={[alertCardStyles.badge, { backgroundColor: color + '15' }]}>
+          <Text style={[alertCardStyles.badgeLabel, { color }]}>{severityLabel(event.type)}</Text>
+        </View>
+      </View>
+      <Text style={alertCardStyles.time}>{timeAgo(event.timestamp)}</Text>
+    </View>
+  )
+}
+
+const alertCardStyles = StyleSheet.create({
+  card: { padding: 14, borderRadius: radius.lg, backgroundColor: 'rgba(49,55,43,0.05)', marginBottom: 10, borderLeftWidth: 3, gap: 8 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  iconWrap: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  name: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 14, color: colors.ink },
+  room: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 12, color: colors.ink, opacity: 0.45, marginTop: 1 },
+  badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, flexShrink: 0 },
+  badgeLabel: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10 },
+  time: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 11.5, color: colors.ink, opacity: 0.3, marginLeft: 48 },
+})
+
+function AlertsContent({ serverIp, serverPort }: { serverIp: string; serverPort: number }) {
   const insets = useSafeAreaInsets()
+  const { patients, recentFalls, status } = useServerWebSocket({ serverIp, port: serverPort })
 
-  const allFalls: FallWithResident[] = MOCK_RESIDENTS.flatMap((r) =>
-    r.fallEvents.map((f) => ({ ...f, residentName: r.name, room: r.room }))
-  ).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+  // Enrich fall events with resident names from patient profiles
+  const enrichedFalls: FallWithName[] = recentFalls.map(fall => {
+    const profile = patients[fall.patient_id]?.profile
+    const residentName = profile?.name ?? fall.patient_id.replace(/_/g, ' ')
+    return { ...fall, residentName }
+  })
 
-  const unresolvedFalls = allFalls.filter(f => !f.resolved)
-  const resolvedFalls = allFalls.filter(f => f.resolved)
+  const wsStatusColor = status === 'connected' ? '#4CAF50' : status === 'connecting' ? '#FF9800' : '#F44336'
+  const wsStatusLabel = status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting…' : 'Offline'
 
   return (
     <View style={[styles.safe, { paddingTop: insets.top }]}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: insets.bottom + 24 },
-        ]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerRow}>
           <Text style={styles.title}>Alerts</Text>
+          <View style={[styles.wsChip, { backgroundColor: wsStatusColor + '18' }]}>
+            <View style={[styles.wsDot, { backgroundColor: wsStatusColor }]} />
+            <Text style={[styles.wsLabel, { color: wsStatusColor }]}>{wsStatusLabel}</Text>
+          </View>
         </View>
 
-        {unresolvedFalls.length === 0 ? (
+        {enrichedFalls.length === 0 ? (
           <View style={styles.allClearBox}>
             <Ionicons name="shield-checkmark" size={36} color={colors.ink} style={{ opacity: 0.15 }} />
             <Text style={styles.allClearTitle}>All clear</Text>
-            <Text style={styles.allClearSub}>No unresolved fall events at this time</Text>
+            <Text style={styles.allClearSub}>
+              {status === 'connected'
+                ? 'No fall events detected during this session'
+                : 'Connect to server to receive live fall alerts'}
+            </Text>
           </View>
         ) : (
           <>
-            <Text style={styles.sectionLabel}>Needs Attention · {unresolvedFalls.length}</Text>
-            {unresolvedFalls.map((fall) => (
-              <View key={fall.id} style={[styles.fallCard, styles.fallCardOpen]}>
-                <View style={[styles.severityBar, { backgroundColor: severityColor(fall.severity) }]} />
-                <View style={styles.fallContent}>
-                  <View style={styles.fallTopRow}>
-                    <Text style={styles.fallResident}>{fall.residentName}</Text>
-                    <View style={[styles.severityTag, { backgroundColor: severityColor(fall.severity) + '18' }]}>
-                      <Text style={[styles.severityText, { color: severityColor(fall.severity) }]}>
-                        {severityLabel(fall.severity)}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.fallLocation}>
-                    <Ionicons name="location-outline" size={12} /> {fall.location} · {fall.room}
-                  </Text>
-                  <Text style={styles.fallTime}>{timeAgo(fall.timestamp)}</Text>
-                </View>
-              </View>
-            ))}
-          </>
-        )}
-
-        {resolvedFalls.length > 0 && (
-          <>
-            <Text style={[styles.sectionLabel, { marginTop: 24 }]}>
-              Recent · Resolved
-            </Text>
-            {resolvedFalls.map((fall) => (
-              <View key={fall.id} style={[styles.fallCard, styles.fallCardResolved]}>
-                <View style={styles.fallContent}>
-                  <View style={styles.fallTopRow}>
-                    <Text style={[styles.fallResident, styles.fallResidentResolved]}>
-                      {fall.residentName}
-                    </Text>
-                    <View style={styles.resolvedTag}>
-                      <Ionicons name="checkmark" size={10} color="#4CAF50" />
-                      <Text style={styles.resolvedText}>Resolved</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.fallLocation, { opacity: 0.35 }]}>
-                    {fall.location} · {fall.room}
-                  </Text>
-                  <Text style={[styles.fallTime, { opacity: 0.28 }]}>{timeAgo(fall.timestamp)}</Text>
-                </View>
-              </View>
+            <Text style={styles.sectionLabel}>This Session · {enrichedFalls.length}</Text>
+            {enrichedFalls.map((fall, i) => (
+              <AlertCard key={`${fall.patient_id}-${fall.timestamp.getTime()}-${i}`} event={fall} />
             ))}
           </>
         )}
@@ -111,45 +110,38 @@ export default function ManagerAlertsScreen() {
   )
 }
 
+export default function ManagerAlertsScreen() {
+  const [serverIp, setServerIp] = useState<string | null>(null)
+  const [serverPort, setServerPort] = useState<number | null>(null)
+
+  useEffect(() => {
+    Promise.all([
+      AsyncStorage.getItem('server_ip'),
+      AsyncStorage.getItem('server_port'),
+    ]).then(([ip, port]) => {
+      setServerIp(ip ?? '')
+      setServerPort(port ? parseInt(port) : 5001)
+    })
+  }, [])
+
+  if (serverIp === null || serverPort === null) {
+    return <View style={{ flex: 1, backgroundColor: colors.bg }} />
+  }
+
+  return <AlertsContent serverIp={serverIp} serverPort={serverPort} />
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 22, paddingTop: 20, paddingBottom: 0 },
-  headerRow: { marginBottom: 24, paddingTop: 12 },
+  scrollContent: { paddingHorizontal: 22, paddingTop: 20 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, paddingTop: 12 },
   title: { fontFamily: 'NunitoSans_900Black', fontSize: 28, color: colors.ink, letterSpacing: -0.5 },
-  sectionLabel: {
-    fontFamily: 'NunitoSans_800ExtraBold',
-    fontSize: 10,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    color: colors.ink,
-    opacity: 0.35,
-    marginBottom: 10,
-  },
-  allClearBox: {
-    alignItems: 'center',
-    paddingVertical: 60,
-    gap: 8,
-  },
-  allClearTitle: { fontFamily: 'NunitoSans_900Black', fontSize: 20, color: colors.ink, opacity: 0.25 },
-  allClearSub: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 13, color: colors.ink, opacity: 0.2, textAlign: 'center' },
-  fallCard: {
-    flexDirection: 'row',
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    marginBottom: 10,
-  },
-  fallCardOpen: { backgroundColor: 'rgba(244,67,54,0.05)', borderWidth: 1, borderColor: 'rgba(244,67,54,0.15)' },
-  fallCardResolved: { backgroundColor: 'rgba(49,55,43,0.05)' },
-  severityBar: { width: 4, borderRadius: 4, margin: 10, marginRight: 0 },
-  fallContent: { flex: 1, padding: 14 },
-  fallTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  fallResident: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 14.5, color: colors.ink },
-  fallResidentResolved: { opacity: 0.45 },
-  fallLocation: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 12, color: colors.ink, opacity: 0.45, marginBottom: 2 },
-  fallTime: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 11.5, color: colors.ink, opacity: 0.3 },
-  severityTag: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
-  severityText: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10 },
-  resolvedTag: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(76,175,80,0.12)', borderRadius: 8 },
-  resolvedText: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10, color: '#4CAF50' },
+  wsChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 },
+  wsDot: { width: 6, height: 6, borderRadius: 3 },
+  wsLabel: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10 },
+  sectionLabel: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10, letterSpacing: 2.5, textTransform: 'uppercase', color: colors.ink, opacity: 0.35, marginBottom: 14 },
+  allClearBox: { alignItems: 'center', paddingVertical: 60, gap: 10 },
+  allClearTitle: { fontFamily: 'NunitoSans_900Black', fontSize: 20, color: colors.ink, opacity: 0.22 },
+  allClearSub: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 13, color: colors.ink, opacity: 0.2, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
 })

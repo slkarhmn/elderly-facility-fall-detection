@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons'
 import * as Notifications from 'expo-notifications'
 import { colors, radius } from '../../constants/theme'
 import { useServerWebSocket, PatientState, FallEvent } from '../../hooks/useServerWebSocket'
+import { LocalResident } from '../(onboarding)/facility'
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -41,8 +42,24 @@ function activityColor(state: string): string {
 
 function activityLabel(state: string): string { return state.replace(/_/g, ' ') }
 
-function PatientCard({ patientId, state, onPress }: {
-  patientId: string; state: PatientState; onPress: () => void
+// Merge a LocalResident into a PatientState shape for display
+function localResidentToPatientState(r: LocalResident): PatientState {
+  return {
+    location: r.room,
+    state: 'offline',
+    state_index: null,
+    rooms: {},
+    profile: {
+      name: r.name,
+      room: r.room,
+      facility: r.facility,
+      contacts: r.contacts,
+    },
+  }
+}
+
+function PatientCard({ patientId, state, isLocal, onPress }: {
+  patientId: string; state: PatientState; isLocal: boolean; onPress: () => void
 }) {
   const isFall = state.state === 'fall'
   const color = activityColor(state.state)
@@ -67,8 +84,17 @@ function PatientCard({ patientId, state, onPress }: {
         </View>
       </View>
       <View style={cardStyles.bottomRow}>
-        <View style={cardStyles.liveDot} />
-        <Text style={cardStyles.liveText}>Live</Text>
+        {isLocal ? (
+          <>
+            <Ionicons name="cloud-offline-outline" size={11} color={colors.ink} style={{ opacity: 0.3 }} />
+            <Text style={cardStyles.offlineText}>No live signal</Text>
+          </>
+        ) : (
+          <>
+            <View style={cardStyles.liveDot} />
+            <Text style={cardStyles.liveText}>Live</Text>
+          </>
+        )}
         <View style={{ flex: 1 }} />
         {state.profile && (
           <Text style={cardStyles.profileTag}>Registered</Text>
@@ -96,6 +122,7 @@ const cardStyles = StyleSheet.create({
   bottomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4CAF50' },
   liveText: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 11.5, color: '#4CAF50' },
+  offlineText: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 11.5, color: colors.ink, opacity: 0.3 },
   profileTag: { fontFamily: 'NunitoSans_700Bold', fontSize: 10, color: colors.ink, opacity: 0.3, backgroundColor: 'rgba(49,55,43,0.08)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
 })
 
@@ -115,7 +142,7 @@ function PatientDetailModal({ patientId, state, onClose }: {
           <TouchableOpacity onPress={onClose} style={detailStyles.closeBtn}>
             <Ionicons name="chevron-down" size={22} color={colors.ink} />
           </TouchableOpacity>
-          <Text style={detailStyles.headerTitle}>Patient Details</Text>
+          <Text style={detailStyles.headerTitle}>Resident Details</Text>
           <View style={{ width: 36 }} />
         </View>
 
@@ -153,17 +180,15 @@ function PatientDetailModal({ patientId, state, onClose }: {
             <Text style={detailStyles.sectionLabel}>Current Location</Text>
             <View style={detailStyles.locationBox}>
               <Ionicons name="location-outline" size={20} color={colors.ink} style={{ opacity: 0.5 }} />
-              <Text style={detailStyles.locationText}>{state.location ?? 'Unknown'}</Text>
+              <Text style={detailStyles.locationText}>{state.location ?? displayRoom}</Text>
             </View>
           </View>
 
           {/* Room signal */}
-          <View style={detailStyles.section}>
-            <Text style={detailStyles.sectionLabel}>Signal Strength by Room</Text>
-            {Object.entries(state.rooms).length === 0 ? (
-              <Text style={detailStyles.emptyText}>No room data available</Text>
-            ) : (
-              Object.entries(state.rooms)
+          {Object.entries(state.rooms).length > 0 && (
+            <View style={detailStyles.section}>
+              <Text style={detailStyles.sectionLabel}>Signal Strength by Room</Text>
+              {Object.entries(state.rooms)
                 .sort(([, a], [, b]) => b - a)
                 .map(([room, rssi]) => {
                   const isStrongest = room === state.location
@@ -183,11 +208,11 @@ function PatientDetailModal({ patientId, state, onClose }: {
                       )}
                     </View>
                   )
-                })
-            )}
-          </View>
+                })}
+            </View>
+          )}
 
-          {/* Emergency contacts — only if registered */}
+          {/* Emergency contacts */}
           {state.profile?.contacts && state.profile.contacts.length > 0 && (
             <View style={detailStyles.section}>
               <Text style={detailStyles.sectionLabel}>Emergency Contacts</Text>
@@ -274,6 +299,20 @@ const detailStyles = StyleSheet.create({
 function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPort: number }) {
   const insets = useSafeAreaInsets()
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [localResidents, setLocalResidents] = useState<LocalResident[]>([])
+
+  // Load locally registered residents from AsyncStorage
+  useEffect(() => {
+    async function loadLocal() {
+      try {
+        const raw = await AsyncStorage.getItem('registered_residents')
+        if (raw) setLocalResidents(JSON.parse(raw))
+      } catch (e) {
+        console.warn('Failed to load local residents', e)
+      }
+    }
+    loadLocal()
+  }, [])
 
   const handleFall = useCallback(async (event: FallEvent) => {
     await fireManagerNotification(event.patient_id, event.room, event.type)
@@ -281,8 +320,45 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
 
   const { patients, status } = useServerWebSocket({ serverIp, port: serverPort, onFall: handleFall })
 
-  const patientEntries = Object.entries(patients)
-  const fallCount = patientEntries.filter(([, s]) => s.state === 'fall').length
+  // Merge: live WebSocket patients take priority; local-only residents fill the gaps
+  const mergedPatients: Record<string, { state: PatientState; isLocal: boolean }> = {}
+
+  // First, add all live patients
+  for (const [id, state] of Object.entries(patients)) {
+    mergedPatients[id] = { state, isLocal: false }
+  }
+
+  // Then fill in locally registered residents that aren't live yet
+  for (const resident of localResidents) {
+    if (!mergedPatients[resident.id]) {
+      mergedPatients[resident.id] = {
+        state: localResidentToPatientState(resident),
+        isLocal: true,
+      }
+    } else {
+      // Live patient exists — enrich with local profile if server hasn't sent one
+      const existing = mergedPatients[resident.id]
+      if (!existing.state.profile) {
+        mergedPatients[resident.id] = {
+          ...existing,
+          state: {
+            ...existing.state,
+            profile: {
+              name: resident.name,
+              room: resident.room,
+              facility: resident.facility,
+              contacts: resident.contacts,
+            },
+          },
+        }
+      }
+    }
+  }
+
+  const patientEntries = Object.entries(mergedPatients)
+  const liveCount = patientEntries.filter(([, { isLocal }]) => !isLocal).length
+  const registeredCount = patientEntries.filter(([, { state }]) => !!state.profile).length
+  const fallCount = patientEntries.filter(([, { state }]) => state.state === 'fall').length
   const wsStatusColor = status === 'connected' ? '#4CAF50' : status === 'connecting' ? '#FF9800' : '#F44336'
   const wsStatusLabel = status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline'
 
@@ -295,7 +371,7 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
     ])
   }
 
-  const selectedState = selectedPatientId ? patients[selectedPatientId] ?? null : null
+  const selectedEntry = selectedPatientId ? mergedPatients[selectedPatientId] ?? null : null
 
   return (
     <View style={[styles.safe, { paddingTop: insets.top }]}>
@@ -319,11 +395,11 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
         <View style={styles.summaryRow}>
           <View style={styles.summaryChip}>
             <Text style={styles.summaryNum}>{patientEntries.length}</Text>
-            <Text style={styles.summaryLabel}>Patients</Text>
+            <Text style={styles.summaryLabel}>Residents</Text>
           </View>
           <View style={styles.summaryChip}>
-            <Text style={styles.summaryNum}>{patientEntries.filter(([, s]) => !!s.profile).length}</Text>
-            <Text style={styles.summaryLabel}>Registered</Text>
+            <Text style={styles.summaryNum}>{liveCount}</Text>
+            <Text style={styles.summaryLabel}>Live</Text>
           </View>
           <View style={[styles.summaryChip, fallCount > 0 && styles.summaryChipAlert]}>
             <Text style={[styles.summaryNum, fallCount > 0 && styles.summaryNumAlert]}>{fallCount}</Text>
@@ -331,43 +407,45 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
           </View>
         </View>
 
-        {status !== 'connected' && patientEntries.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="wifi-outline" size={40} color={colors.ink} style={{ opacity: 0.15 }} />
-            <Text style={styles.emptyTitle}>No patients detected</Text>
-            <Text style={styles.emptySub}>
-              {status === 'connecting' ? 'Connecting to server...' : 'Enter server IP and port in role select, then ensure server.py is running'}
-            </Text>
-          </View>
-        ) : patientEntries.length === 0 ? (
+        {patientEntries.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={40} color={colors.ink} style={{ opacity: 0.15 }} />
-            <Text style={styles.emptyTitle}>Waiting for patients</Text>
-            <Text style={styles.emptySub}>Connected to server. No patient data yet — ensure client.py is running in each room.</Text>
+            <Text style={styles.emptyTitle}>No residents yet</Text>
+            <Text style={styles.emptySub}>
+              Residents will appear here once they complete the onboarding process on their device.
+            </Text>
           </View>
         ) : (
           <>
-            <Text style={styles.listLabel}>Active Patients</Text>
+            <Text style={styles.listLabel}>All Residents · {patientEntries.length}</Text>
             {patientEntries
               .sort(([, a], [, b]) => {
-                if (a.state === 'fall') return -1
-                if (b.state === 'fall') return 1
-                if (a.state === 'stumbling') return -1
-                if (b.state === 'stumbling') return 1
+                if (a.state.state === 'fall') return -1
+                if (b.state.state === 'fall') return 1
+                if (a.state.state === 'stumbling') return -1
+                if (b.state.state === 'stumbling') return 1
+                if (!a.isLocal && b.isLocal) return -1
+                if (a.isLocal && !b.isLocal) return 1
                 return 0
               })
-              .map(([patientId, state]) => (
-                <PatientCard key={patientId} patientId={patientId} state={state} onPress={() => setSelectedPatientId(patientId)} />
+              .map(([patientId, { state, isLocal }]) => (
+                <PatientCard
+                  key={patientId}
+                  patientId={patientId}
+                  state={state}
+                  isLocal={isLocal}
+                  onPress={() => setSelectedPatientId(patientId)}
+                />
               ))
             }
           </>
         )}
       </ScrollView>
 
-      {selectedPatientId && selectedState && (
+      {selectedPatientId && selectedEntry && (
         <PatientDetailModal
           patientId={selectedPatientId}
-          state={selectedState}
+          state={selectedEntry.state}
           onClose={() => setSelectedPatientId(null)}
         />
       )}
