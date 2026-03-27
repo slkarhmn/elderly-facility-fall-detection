@@ -60,6 +60,9 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       if (!mountedRef.current || !device) return
       try {
         const predChar = await device.readCharacteristicForService(BLE_SERVICE_UUID, BLE_PREDICTION_UUID)
+        console.log('[POLL] raw predChar value:', predChar?.value)
+        console.log('[POLL] decoded idx:', predChar?.value ? atob(predChar.value).charCodeAt(0) : 'null')
+
         if (predChar?.value) {
           const idx = atob(predChar.value).charCodeAt(0)
           if (idx !== 255) {
@@ -67,11 +70,16 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
             if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
           }
         }
+
         const confChar = await device.readCharacteristicForService(BLE_SERVICE_UUID, BLE_CONFIDENCE_UUID)
+        console.log('[POLL] raw confChar value:', confChar?.value)
+
         if (confChar?.value) {
           setBleConfidence(atob(confChar.value).charCodeAt(0))
         }
-      } catch {}
+      } catch (e) {
+        console.log('[POLL] read error:', e)
+      }
     }, POLL_INTERVAL)
   }, [])
 
@@ -81,11 +89,14 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
 
   const connectBle = useCallback(async () => {
     if (!deviceId) return
+    console.log('[BLE] connectBle called, deviceId:', deviceId)
     setBleStatus('connecting')
     try {
       const connected = await bleManager.connectedDevices([BLE_SERVICE_UUID])
+      console.log('[BLE] already connected devices:', connected.map((d: any) => d.id))
       let device = connected.find((d: any) => d.id === deviceId)
       if (!device) {
+        console.log('[BLE] not found in connected, calling connectToDevice')
         device = await bleManager.connectToDevice(deviceId, { autoConnect: true })
       }
       await device.discoverAllServicesAndCharacteristics()
@@ -96,19 +107,27 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       try {
         const cmdBase64 = btoa(String.fromCharCode(CMD_INFER))
         await device.writeCharacteristicWithResponseForService(BLE_SERVICE_UUID, BLE_MODE_COMMAND_UUID, cmdBase64)
-      } catch {}
+        console.log('[BLE] CMD_INFER sent successfully')
+      } catch (e) {
+        console.log('[BLE] CMD_INFER rejected:', e)
+      }
 
       setBleStatus('connected')
+      console.log('[BLE] status set to connected, starting polling')
 
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_PREDICTION_UUID, (err: any, char: any) => {
-        if (!mountedRef.current || err || !char?.value) return
+        if (err) { console.log('[BLE] prediction monitor error:', err); return }
+        if (!mountedRef.current || !char?.value) return
         try {
           const idx = atob(char.value).charCodeAt(0)
+          console.log('[BLE] prediction notify fired, idx:', idx)
           if (idx !== 255) {
             setBleActivity(idx)
             if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
           }
-        } catch {}
+        } catch (e) {
+          console.log('[BLE] prediction decode error:', e)
+        }
       })
 
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_CONFIDENCE_UUID, (err: any, char: any) => {
@@ -126,6 +145,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       startPolling(device)
 
       device.onDisconnected(() => {
+        console.log('[BLE] device disconnected')
         if (!mountedRef.current) return
         setBleStatus('disconnected')
         setBleActivity(-1)
@@ -135,12 +155,14 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
         setTimeout(() => { if (mountedRef.current) connectBle() }, 3000)
       })
 
-    } catch {
+    } catch (e) {
+      console.log('[BLE] connectBle error:', e)
       if (mountedRef.current) setBleStatus('error')
     }
   }, [deviceId, startPolling, stopPolling])
 
   const bleReconnect = useCallback(() => {
+    console.log('[BLE] bleReconnect tapped')
     stopPolling()
     setBleStatus('disconnected')
     connectBle()
