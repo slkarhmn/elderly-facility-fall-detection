@@ -51,7 +51,6 @@ STATE_LABELS = {
     6: "fall",
 }
 
-
 # websocket connection handler
 async def ws_handler(websocket):
     print(f"App connected: {websocket.remote_address}")
@@ -262,8 +261,8 @@ async def main():
     print(f"WebSocket server listening on port {WS_PORT} (app clients)")
     print(f"Available on:")
     for ip in ip_list:
-        print(f"  TCP: {ip}:{TCP_PORT}")
-        print(f"  WS:  ws://{ip}:{WS_PORT}")
+        print(f"TCP: {ip}:{TCP_PORT}")
+        print(f"WS:  ws://{ip}:{WS_PORT}")
 
     await asyncio.gather(
         tcp_server.serve_forever(),

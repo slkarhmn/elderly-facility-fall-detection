@@ -88,7 +88,7 @@ def detection_callback(device, advertisement_data):
     latest_patient_state[patient_id] = (rssi, state_index)
 
     if state_index == 6: #instant fall detection
-        print(f"⚡ Instant fall alert for {patient_id}")
+        print(f"Instant fall alert for {patient_id}")
         send_to_server(patient_id, rssi, state_index)
 
     handle_stumble_tracking(patient_id, rssi, state_index)
@@ -100,7 +100,7 @@ async def periodic_state_reporter():
         if not latest_patient_state:
             print("No patients detected yet, nothing to report.")
             continue
-        print(f"📡 Sending periodic update for {len(latest_patient_state)} patient(s)...")
+        print(f"Sending periodic update for {len(latest_patient_state)} patient(s)...")
         for patient_id, (rssi, state_index) in latest_patient_state.items():
             if state_index == 6:
                 continue  # already sent instantly on detection
