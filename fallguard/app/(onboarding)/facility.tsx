@@ -15,15 +15,14 @@ const FACILITIES = [
   { id: 'meadows',   name: 'The Meadows',           location: 'Subang Jaya, Selangor' },
 ]
 
-// Shape stored in AsyncStorage under 'registered_residents'
 export type LocalResident = {
-  id: string          // e.g. "PATIENT_01"
+  id: string
   name: string
   age: string
   room: string
   facility: string
   arduinoId: string | null
-  registeredAt: string // ISO date string
+  registeredAt: string
   contacts: {
     name: string
     phone: string
@@ -67,7 +66,6 @@ async function saveResidentLocally(resident: LocalResident) {
   try {
     const raw = await AsyncStorage.getItem('registered_residents')
     const existing: LocalResident[] = raw ? JSON.parse(raw) : []
-    // Replace if same id already exists, otherwise append
     const updated = existing.filter(r => r.id !== resident.id)
     updated.push(resident)
     await AsyncStorage.setItem('registered_residents', JSON.stringify(updated))
@@ -85,7 +83,7 @@ async function sendRegistrationToServer(payload: object, serverIp: string, port:
       ws.onopen = () => {
         ws.send(JSON.stringify(payload))
         clearTimeout(timer)
-        setTimeout(() => { ws.close(); resolve() }, 500)
+        setTimeout(() => { ws.close(); resolve() }, 800)
       }
       ws.onerror = () => { clearTimeout(timer); resolve() }
     } catch { resolve() }
@@ -114,9 +112,16 @@ export default function StepFacility() {
         arduinoId: arduinoDeviceId, contactCount: contacts.length,
       }))
 
-      const patientId = 'PATIENT_01' // matches Arduino DEVICE_NAME
+      const patientId = 'PATIENT_01'
 
-      // ── Save resident locally so manager can see them without a server ──
+      const residentContacts = contacts.map(c => ({
+        name: c.name,
+        phone: c.phone,
+        relation: c.relation,
+        isPrimary: c.isPrimary,
+      }))
+
+      // 1. Always save locally — manager sees resident even without server
       const localResident: LocalResident = {
         id: patientId,
         name,
@@ -125,16 +130,11 @@ export default function StepFacility() {
         facility: selectedFacility.name,
         arduinoId: arduinoDeviceId,
         registeredAt: new Date().toISOString(),
-        contacts: contacts.map(c => ({
-          name: c.name,
-          phone: c.phone,
-          relation: c.relation,
-          isPrimary: c.isPrimary,
-        })),
+        contacts: residentContacts,
       }
       await saveResidentLocally(localResident)
 
-      // ── Also try to register with server over WebSocket ──
+      // 2. Send to server if IP is configured — no Arduino gate
       const serverIp = await AsyncStorage.getItem('server_ip') ?? ''
       const serverPort = await AsyncStorage.getItem('server_port') ?? '5001'
 
@@ -146,9 +146,13 @@ export default function StepFacility() {
           age,
           room: room.trim(),
           facility: selectedFacility.name,
-          contacts: localResident.contacts,
+          contacts: residentContacts,
         }, serverIp, serverPort)
+        console.log('[Registration] Sent to server:', serverIp + ':' + serverPort)
+      } else {
+        console.log('[Registration] No server IP — saved locally only')
       }
+
     } catch (e) {
       console.warn('Onboarding completion error', e)
     }
