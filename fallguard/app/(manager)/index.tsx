@@ -8,6 +8,7 @@ import * as Notifications from 'expo-notifications'
 import { colors, radius } from '../../constants/theme'
 import { useServerWebSocket, PatientState, FallEvent } from '../../hooks/useServerWebSocket'
 import { LocalResident } from '../(onboarding)/facility'
+import { CollapsibleSection } from '../../components/ui/collapsible-section'
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -394,10 +395,6 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
             <Text style={styles.title}>Residents</Text>
           </View>
           <View style={styles.headerRight}>
-            <View style={[styles.wsChip, { backgroundColor: wsStatusColor + '18' }]}>
-              <View style={[styles.wsDot, { backgroundColor: wsStatusColor }]} />
-              <Text style={[styles.wsLabel, { color: wsStatusColor }]}>{wsStatusLabel}</Text>
-            </View>
             <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
               <Ionicons name="log-out-outline" size={18} color={colors.ink} style={{ opacity: 0.45 }} />
             </TouchableOpacity>
@@ -419,21 +416,30 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
           </View>
         </View>
 
-        <View style={styles.diagCard}>
-          <View style={styles.diagRow}>
-            <Text style={styles.diagLabel}>WS</Text>
-            <Text style={[styles.diagValue, { color: wsStatusColor }]}>{wsStatusLabel}</Text>
+        <CollapsibleSection
+          header={
+            <View style={[styles.wsChip, { backgroundColor: wsStatusColor + '18' }]}>
+              <View style={[styles.wsDot, { backgroundColor: wsStatusColor }]} />
+              <Text style={[styles.wsLabel, { color: wsStatusColor }]}>{wsStatusLabel}</Text>
+            </View>
+          }
+        >
+          <View style={styles.diagCard}>
+            <View style={styles.diagRow}>
+              <Text style={styles.diagLabel}>WS</Text>
+              <Text style={[styles.diagValue, { color: wsStatusColor }]}>{wsStatusLabel}</Text>
+            </View>
+            <Text style={styles.diagMono}>{serverIp}:{serverPort}</Text>
+            <View style={styles.diagRow}>
+              <Text style={styles.diagLabel}>Last</Text>
+              <Text style={styles.diagValue}>{lastMessageType ?? '—'}</Text>
+            </View>
+            <Text style={styles.diagMono}>
+              {formatMaybeTime(lastMessageAt)}{lastSnapshotCount != null ? ` · snapshot=${lastSnapshotCount}` : ''}
+            </Text>
+            {lastError ? <Text style={styles.diagError}>{lastError}</Text> : null}
           </View>
-          <Text style={styles.diagMono}>{serverIp}:{serverPort}</Text>
-          <View style={styles.diagRow}>
-            <Text style={styles.diagLabel}>Last</Text>
-            <Text style={styles.diagValue}>{lastMessageType ?? '—'}</Text>
-          </View>
-          <Text style={styles.diagMono}>
-            {formatMaybeTime(lastMessageAt)}{lastSnapshotCount != null ? ` · snapshot=${lastSnapshotCount}` : ''}
-          </Text>
-          {lastError ? <Text style={styles.diagError}>{lastError}</Text> : null}
-        </View>
+        </CollapsibleSection>
 
         {patientEntries.length === 0 ? (
           <View style={styles.emptyState}>
@@ -528,7 +534,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(49,55,43,0.06)',
     borderRadius: radius.lg,
     padding: 14,
-    marginBottom: 18,
+    marginBottom: 0,
     gap: 6,
     borderWidth: 1,
     borderColor: 'rgba(49,55,43,0.08)',

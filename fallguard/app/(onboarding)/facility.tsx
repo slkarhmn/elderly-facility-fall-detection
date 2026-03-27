@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { colors, radius } from '../../constants/theme'
-import { ProgressBar, StepTag, Headline, Subline, UnderlineInput, CTAButton, BackButton } from '../../components/OnboardingUI'
+import { ProgressBar, StepTag, Headline, Subline, CTAButton, BackButton } from '../../components/OnboardingUI'
 import { useOnboardingStore } from '../../store/onboardingStore'
 import { Ionicons } from '@expo/vector-icons'
 
@@ -30,6 +30,8 @@ export type LocalResident = {
     isPrimary: boolean
   }[]
 }
+
+const ROOM_DEFAULT = 'Unknown' // Used when the resident skips room number entry.
 
 function FacilityOption({ facility, selected, onSelect }: { facility: typeof FACILITIES[0]; selected: boolean; onSelect: () => void }) {
   return (
@@ -94,21 +96,20 @@ export default function StepFacility() {
   const insets = useSafeAreaInsets()
   const { name, age, setFacility, contacts, arduinoDeviceId } = useOnboardingStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [room, setRoom] = useState('')
   const [loading, setLoading] = useState(false)
 
   const selectedFacility = FACILITIES.find((f) => f.id === selectedId)
-  const canContinue = !!selectedFacility && room.trim().length > 0
+  const canContinue = !!selectedFacility
 
   const handleComplete = async () => {
-    if (!selectedFacility || !room.trim()) return
+    if (!selectedFacility) return
     setLoading(true)
-    setFacility(selectedFacility.name, selectedFacility.location, room.trim())
+    setFacility(selectedFacility.name, selectedFacility.location, ROOM_DEFAULT)
 
     try {
       await AsyncStorage.setItem('onboarding_complete', 'true')
       await AsyncStorage.setItem('user_data', JSON.stringify({
-        name, facility: selectedFacility.name, room: room.trim(),
+        name, facility: selectedFacility.name, room: ROOM_DEFAULT,
         arduinoId: arduinoDeviceId, contactCount: contacts.length,
       }))
 
@@ -126,7 +127,7 @@ export default function StepFacility() {
         id: patientId,
         name,
         age,
-        room: room.trim(),
+        room: ROOM_DEFAULT,
         facility: selectedFacility.name,
         arduinoId: arduinoDeviceId,
         registeredAt: new Date().toISOString(),
@@ -144,7 +145,7 @@ export default function StepFacility() {
           patient_id: patientId,
           name,
           age,
-          room: room.trim(),
+          room: ROOM_DEFAULT,
           facility: selectedFacility.name,
           contacts: residentContacts,
         }, serverIp, serverPort)
@@ -171,7 +172,7 @@ export default function StepFacility() {
               <BackButton onPress={() => router.back()} />
               <StepTag current={5} total={5} />
               <Headline>{'Where are\nyou staying?'}</Headline>
-              <Subline>Choose your care facility and enter your room number so staff can find you quickly.</Subline>
+              <Subline>Choose your care facility so staff can find you quickly.</Subline>
 
               {FACILITIES.map((f) => (
                 <FacilityOption key={f.id} facility={f} selected={selectedId === f.id} onSelect={() => setSelectedId(f.id)} />
@@ -179,16 +180,10 @@ export default function StepFacility() {
 
               <View style={{ height: 20 }} />
 
-              <UnderlineInput
-                label="Room Number" placeholder="e.g. Room 13" value={room} onChangeText={setRoom}
-                autoCapitalize="characters" returnKeyType="done" onSubmitEditing={handleComplete}
-                hint="e.g. Room 13, Ward B, Unit 4A"
-              />
-
               {canContinue && (
                 <View style={styles.summaryCard}>
                   <Text style={styles.summaryTitle}>All set, {name}! 🎉</Text>
-                  <Text style={styles.summarySub}>{selectedFacility?.name} · {room}</Text>
+                  <Text style={styles.summarySub}>{selectedFacility?.name}</Text>
                   <Text style={styles.summarySub2}>{contacts.length} emergency contact{contacts.length !== 1 ? 's' : ''} · Device synced</Text>
                 </View>
               )}
