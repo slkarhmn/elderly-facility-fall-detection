@@ -28,6 +28,11 @@
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.miaumiaunoway.fallguard"
@@ -62,6 +67,12 @@
       "eas": {
         "projectId": "09a7bf76-2471-4041-9dca-16f41ec708ff"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/09a7bf76-2471-4041-9dca-16f41ec708ff"
     }
   }
 }

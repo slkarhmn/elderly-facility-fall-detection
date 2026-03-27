@@ -120,18 +120,29 @@ export default function RoleSelectScreen() {
   const insets = useSafeAreaInsets()
   const [passcodeVisible, setPasscodeVisible] = useState(false)
   const [serverIp, setServerIp] = useState('')
-  const [ipSaved, setIpSaved] = useState(false)
+  const [serverPort, setServerPort] = useState('5001')
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    AsyncStorage.getItem('server_ip').then(ip => { if (ip) setServerIp(ip) })
+    Promise.all([
+      AsyncStorage.getItem('server_ip'),
+      AsyncStorage.getItem('server_port'),
+    ]).then(([ip, port]) => {
+      if (ip) setServerIp(ip)
+      if (port) setServerPort(port)
+    })
   }, [])
 
-  const handleSaveIp = async () => {
-    const trimmed = serverIp.trim()
-    if (!trimmed) return
-    await AsyncStorage.setItem('server_ip', trimmed)
-    setIpSaved(true)
-    setTimeout(() => setIpSaved(false), 2000)
+  const handleSave = async () => {
+    const trimmedIp = serverIp.trim()
+    const trimmedPort = serverPort.trim() || '5001'
+    if (!trimmedIp) return
+    await Promise.all([
+      AsyncStorage.setItem('server_ip', trimmedIp),
+      AsyncStorage.setItem('server_port', trimmedPort),
+    ])
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
   }
 
   const handleResidentPress = () => {
@@ -159,30 +170,48 @@ export default function RoleSelectScreen() {
           <Text style={styles.appTagline}>Care-connected fall detection</Text>
         </View>
 
-        {/* Server IP input */}
-        <View style={styles.ipBox}>
-          <View style={styles.ipRow}>
-            <Ionicons name="wifi-outline" size={16} color={colors.ink} style={{ opacity: 0.45 }} />
+        {/* Server connection config */}
+        <View style={styles.serverBox}>
+          <Text style={styles.serverBoxLabel}>Server Connection</Text>
+          {/* IP row */}
+          <View style={styles.inputRow}>
+            <Ionicons name="wifi-outline" size={16} color={colors.ink} style={{ opacity: 0.4 }} />
             <TextInput
-              style={styles.ipInput}
+              style={styles.textInput}
               value={serverIp}
               onChangeText={setServerIp}
-              placeholder="Server IP  e.g. 192.168.1.100"
+              placeholder="IP address  e.g. 192.168.1.100"
               placeholderTextColor="rgba(49,55,43,0.25)"
               keyboardType="decimal-pad"
               autoCapitalize="none"
               autoCorrect={false}
-              returnKeyType="done"
-              onSubmitEditing={handleSaveIp}
+              returnKeyType="next"
             />
-            <TouchableOpacity
-              style={[styles.ipSaveBtn, ipSaved && styles.ipSaveBtnDone]}
-              onPress={handleSaveIp}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.ipSaveBtnLabel}>{ipSaved ? '✓' : 'Save'}</Text>
-            </TouchableOpacity>
           </View>
+          <View style={styles.divider} />
+          {/* Port row */}
+          <View style={styles.inputRow}>
+            <Ionicons name="git-network-outline" size={16} color={colors.ink} style={{ opacity: 0.4 }} />
+            <TextInput
+              style={styles.textInput}
+              value={serverPort}
+              onChangeText={setServerPort}
+              placeholder="Port  e.g. 5001"
+              placeholderTextColor="rgba(49,55,43,0.25)"
+              keyboardType="number-pad"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={handleSave}
+            />
+          </View>
+          <TouchableOpacity
+            style={[styles.saveBtn, saved && styles.saveBtnDone]}
+            onPress={handleSave}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.saveBtnLabel}>{saved ? '✓ Saved' : 'Save'}</Text>
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.sectionLabel}>Who are you?</Text>
@@ -219,17 +248,28 @@ const styles = StyleSheet.create({
   logoIcon: { width: 72, height: 72, borderRadius: 22, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center', marginBottom: 14, shadowColor: colors.ink, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 8 },
   appName: { fontFamily: 'NunitoSans_900Black', fontSize: 30, color: colors.ink, letterSpacing: -0.5 },
   appTagline: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 13, color: colors.ink, opacity: 0.35, marginTop: 4 },
-  ipBox: {
+  serverBox: {
     backgroundColor: 'rgba(49,55,43,0.06)',
     borderRadius: radius.lg,
     padding: 14,
     marginBottom: 28,
+    gap: 0,
   },
-  ipRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  ipInput: { flex: 1, fontFamily: 'NunitoSans_600SemiBold', fontSize: 14, color: colors.ink, paddingVertical: 4 },
-  ipSaveBtn: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.ink, borderRadius: 10 },
-  ipSaveBtnDone: { backgroundColor: '#4CAF50' },
-  ipSaveBtnLabel: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 12, color: colors.bg },
+  serverBoxLabel: {
+    fontFamily: 'NunitoSans_800ExtraBold',
+    fontSize: 9,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: colors.ink,
+    opacity: 0.35,
+    marginBottom: 10,
+  },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  textInput: { flex: 1, fontFamily: 'NunitoSans_600SemiBold', fontSize: 14, color: colors.ink, paddingVertical: 4 },
+  divider: { height: 1, backgroundColor: 'rgba(49,55,43,0.08)', marginVertical: 8 },
+  saveBtn: { marginTop: 12, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.ink, borderRadius: 10, alignSelf: 'flex-end' },
+  saveBtnDone: { backgroundColor: '#4CAF50' },
+  saveBtnLabel: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 12, color: colors.bg },
   sectionLabel: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10, letterSpacing: 2.5, textTransform: 'uppercase', color: colors.ink, opacity: 0.35, marginBottom: 14 },
   footer: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 11, color: colors.ink, opacity: 0.22, textAlign: 'center', marginTop: 40, lineHeight: 18 },
 })

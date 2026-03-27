@@ -150,7 +150,7 @@ export default function StepCalibrate() {
           <BackButton onPress={() => router.back()} />
           <StepTag current={4} total={5} />
           <Headline>{'Calibrate\nyour device.'}</Headline>
-          <Subline>Attach the sensor to your wrist and walk naturally for 20 seconds. We'll record your normal gait.</Subline>
+          <Subline>Attach the sensor to your waist and walk naturally for 20 seconds. We'll record your normal gait.</Subline>
 
           <TimerRing progress={progress} secondsLeft={secondsLeft} running={calibState === 'running'} done={calibState === 'done'} />
 

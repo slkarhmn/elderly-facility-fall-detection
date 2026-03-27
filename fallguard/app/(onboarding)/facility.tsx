@@ -15,6 +15,23 @@ const FACILITIES = [
   { id: 'meadows',   name: 'The Meadows',           location: 'Subang Jaya, Selangor' },
 ]
 
+// Shape stored in AsyncStorage under 'registered_residents'
+export type LocalResident = {
+  id: string          // e.g. "PATIENT_01"
+  name: string
+  age: string
+  room: string
+  facility: string
+  arduinoId: string | null
+  registeredAt: string // ISO date string
+  contacts: {
+    name: string
+    phone: string
+    relation: string
+    isPrimary: boolean
+  }[]
+}
+
 function FacilityOption({ facility, selected, onSelect }: { facility: typeof FACILITIES[0]; selected: boolean; onSelect: () => void }) {
   return (
     <TouchableOpacity style={[optStyles.pill, selected && optStyles.pillSelected]} onPress={onSelect} activeOpacity={0.75}>
@@ -45,6 +62,19 @@ const optStyles = StyleSheet.create({
   radioSelected: { borderColor: colors.bg },
   radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.bg },
 })
+
+async function saveResidentLocally(resident: LocalResident) {
+  try {
+    const raw = await AsyncStorage.getItem('registered_residents')
+    const existing: LocalResident[] = raw ? JSON.parse(raw) : []
+    // Replace if same id already exists, otherwise append
+    const updated = existing.filter(r => r.id !== resident.id)
+    updated.push(resident)
+    await AsyncStorage.setItem('registered_residents', JSON.stringify(updated))
+  } catch (e) {
+    console.warn('Failed to save resident locally', e)
+  }
+}
 
 async function sendRegistrationToServer(payload: object, serverIp: string, port: string) {
   return new Promise<void>((resolve) => {
@@ -84,12 +114,31 @@ export default function StepFacility() {
         arduinoId: arduinoDeviceId, contactCount: contacts.length,
       }))
 
-      // Send registration to server over WebSocket
+      const patientId = 'PATIENT_01' // matches Arduino DEVICE_NAME
+
+      // ── Save resident locally so manager can see them without a server ──
+      const localResident: LocalResident = {
+        id: patientId,
+        name,
+        age,
+        room: room.trim(),
+        facility: selectedFacility.name,
+        arduinoId: arduinoDeviceId,
+        registeredAt: new Date().toISOString(),
+        contacts: contacts.map(c => ({
+          name: c.name,
+          phone: c.phone,
+          relation: c.relation,
+          isPrimary: c.isPrimary,
+        })),
+      }
+      await saveResidentLocally(localResident)
+
+      // ── Also try to register with server over WebSocket ──
       const serverIp = await AsyncStorage.getItem('server_ip') ?? ''
       const serverPort = await AsyncStorage.getItem('server_port') ?? '5001'
 
-      if (serverIp && arduinoDeviceId) {
-        const patientId = 'PATIENT_01' // matches Arduino DEVICE_NAME
+      if (serverIp) {
         await sendRegistrationToServer({
           type: 'register',
           patient_id: patientId,
@@ -97,12 +146,7 @@ export default function StepFacility() {
           age,
           room: room.trim(),
           facility: selectedFacility.name,
-          contacts: contacts.map(c => ({
-            name: c.name,
-            phone: c.phone,
-            relation: c.relation,
-            isPrimary: c.isPrimary,
-          })),
+          contacts: localResident.contacts,
         }, serverIp, serverPort)
       }
     } catch (e) {
