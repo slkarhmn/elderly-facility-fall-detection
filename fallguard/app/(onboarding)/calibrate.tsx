@@ -1,14 +1,13 @@
-
 import React, { useState, useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, ScrollView, Animated, Easing, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { Circle } from 'react-native-svg'
 import { router } from 'expo-router'
-import { BleManager } from 'react-native-ble-plx'
 import { colors, radius } from '../../constants/theme'
 import { ProgressBar, StepTag, Headline, Subline, CTAButton, BackButton } from '../../components/OnboardingUI'
 import { Ionicons } from '@expo/vector-icons'
 import { useOnboardingStore } from '../../store/onboardingStore'
+import { bleManager } from '../../constants/bleManager'
 
 const BLE_SERVICE_UUID      = '19B10000-E8F2-537E-4F6C-D104768A1214'
 const BLE_MODE_COMMAND_UUID = '19B10004-E8F2-537E-4F6C-D104768A1214'
@@ -93,13 +92,11 @@ export default function StepCalibrate() {
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS)
   const [errorMsg, setErrorMsg] = useState('')
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const bleManagerRef = useRef<BleManager | null>(null)
 
   useEffect(() => {
-    bleManagerRef.current = new BleManager()
     return () => {
+      // Only clear the countdown timer — never destroy the shared bleManager singleton
       if (intervalRef.current) clearInterval(intervalRef.current)
-      bleManagerRef.current?.destroy()
     }
   }, [])
 
@@ -121,8 +118,7 @@ export default function StepCalibrate() {
     }
     setCalibState('sending'); setErrorMsg('')
     try {
-      const manager = bleManagerRef.current!
-      const devices = await manager.connectedDevices([BLE_SERVICE_UUID])
+      const devices = await bleManager.connectedDevices([BLE_SERVICE_UUID])
       const device = devices.find(d => d.id === arduinoDeviceId) ?? devices[0]
       if (!device) throw new Error('Device not connected. Go back and reconnect your sensor.')
       await device.discoverAllServicesAndCharacteristics()

@@ -19,7 +19,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { BleManager } from 'react-native-ble-plx'
+import { bleManager } from '../constants/bleManager'
 import { atob } from 'react-native-quick-base64'
 import {
   BLE_SERVICE_UUID,
@@ -62,24 +62,22 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
   const [wsRoom,        setWsRoom]        = useState<string | null>(null)
   const [fallDetected,  setFallDetected]  = useState(false)
 
-  const bleManagerRef  = useRef<BleManager | null>(null)
   const wsRef          = useRef<WebSocket | null>(null)
   const wsReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef     = useRef(true)
   const onFallRef      = useRef(onFall)
   onFallRef.current    = onFall
 
-  // ── BLE ────────────────────────────────────────────────────────────────────
+  // BLE 
 
   const connectBle = useCallback(async () => {
-    if (!deviceId || !bleManagerRef.current) return
-    const manager = bleManagerRef.current
+    if (!deviceId) return
     setBleStatus('connecting')
     try {
-      const connected = await manager.connectedDevices([BLE_SERVICE_UUID])
+      const connected = await bleManager.connectedDevices([BLE_SERVICE_UUID])
       let device = connected.find(d => d.id === deviceId)
       if (!device) {
-        device = await manager.connectToDevice(deviceId, { autoConnect: true })
+        device = await bleManager.connectToDevice(deviceId, { autoConnect: true })
       }
       await device.discoverAllServicesAndCharacteristics()
       if (!mountedRef.current) return
@@ -121,7 +119,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
 
   const bleReconnect = useCallback(() => { setBleStatus('disconnected'); connectBle() }, [connectBle])
 
-  // ── WebSocket ──────────────────────────────────────────────────────────────
+  // WebSocket 
 
   const connectWs = useCallback((ip: string, port: string) => {
     if (!ip) { setWsStatus('no_server'); return }
@@ -171,11 +169,10 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
     }
   }, [patientId])
 
-  // ── Init ───────────────────────────────────────────────────────────────────
+  // Init 
 
   useEffect(() => {
     mountedRef.current = true
-    bleManagerRef.current = new BleManager()
     async function init() {
       const port = await AsyncStorage.getItem('server_port') ?? '5001'
       if (serverIp) connectWs(serverIp, port)
@@ -186,11 +183,10 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       mountedRef.current = false
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
       wsRef.current?.close()
-      bleManagerRef.current?.destroy()
     }
   }, [serverIp, deviceId])
 
-  // ── Derive output ──────────────────────────────────────────────────────────
+  // Derive output 
 
   const activeIndex = bleStatus === 'connected' && bleActivity >= 0 ? bleActivity : wsActivity
   const activeLabel = activeIndex >= 0 ? (STATE_LABELS[activeIndex] ?? 'unknown') : 'offline'
