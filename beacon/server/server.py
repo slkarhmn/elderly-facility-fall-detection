@@ -157,7 +157,7 @@ async def handle_scanner_packet(reader, writer):
             print(f"Malformed packet: {data!r}")
             return
 
-        patient_id, room, rssi_str, state_raw = parts
+        patient_id, room, rssi_str, state_raw = [p.strip() for p in parts]
         rssi = int(rssi_str)
 
         if state_raw.strip() == "FALL_LIKELY":

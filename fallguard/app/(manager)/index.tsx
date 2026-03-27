@@ -318,7 +318,14 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
     await fireManagerNotification(event.patient_id, event.room, event.type)
   }, [])
 
-  const { patients, status } = useServerWebSocket({ serverIp, port: serverPort, onFall: handleFall })
+  const {
+    patients,
+    status,
+    lastMessageType,
+    lastMessageAt,
+    lastSnapshotCount,
+    lastError,
+  } = useServerWebSocket({ serverIp, port: serverPort, onFall: handleFall })
 
   // Merge: live WebSocket patients take priority; local-only residents fill the gaps
   const mergedPatients: Record<string, { state: PatientState; isLocal: boolean }> = {}
@@ -361,6 +368,11 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
   const fallCount = patientEntries.filter(([, { state }]) => state.state === 'fall').length
   const wsStatusColor = status === 'connected' ? '#4CAF50' : status === 'connecting' ? '#FF9800' : '#F44336'
   const wsStatusLabel = status === 'connected' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline'
+
+  const formatMaybeTime = (d: Date | null) => {
+    if (!d) return '—'
+    try { return d.toLocaleTimeString() } catch { return String(d) }
+  }
 
   const handleSignOut = async () => {
     Alert.alert('Sign out', 'Sign out of manager mode?', [
@@ -405,6 +417,22 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
             <Text style={[styles.summaryNum, fallCount > 0 && styles.summaryNumAlert]}>{fallCount}</Text>
             <Text style={[styles.summaryLabel, fallCount > 0 && styles.summaryLabelAlert]}>Falls</Text>
           </View>
+        </View>
+
+        <View style={styles.diagCard}>
+          <View style={styles.diagRow}>
+            <Text style={styles.diagLabel}>WS</Text>
+            <Text style={[styles.diagValue, { color: wsStatusColor }]}>{wsStatusLabel}</Text>
+          </View>
+          <Text style={styles.diagMono}>{serverIp}:{serverPort}</Text>
+          <View style={styles.diagRow}>
+            <Text style={styles.diagLabel}>Last</Text>
+            <Text style={styles.diagValue}>{lastMessageType ?? '—'}</Text>
+          </View>
+          <Text style={styles.diagMono}>
+            {formatMaybeTime(lastMessageAt)}{lastSnapshotCount != null ? ` · snapshot=${lastSnapshotCount}` : ''}
+          </Text>
+          {lastError ? <Text style={styles.diagError}>{lastError}</Text> : null}
         </View>
 
         {patientEntries.length === 0 ? (
@@ -496,4 +524,18 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: 60, gap: 10 },
   emptyTitle: { fontFamily: 'NunitoSans_900Black', fontSize: 18, color: colors.ink, opacity: 0.25 },
   emptySub: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 13, color: colors.ink, opacity: 0.2, textAlign: 'center', lineHeight: 20, maxWidth: 280 },
+  diagCard: {
+    backgroundColor: 'rgba(49,55,43,0.06)',
+    borderRadius: radius.lg,
+    padding: 14,
+    marginBottom: 18,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(49,55,43,0.08)',
+  },
+  diagRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
+  diagLabel: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', color: colors.ink, opacity: 0.35 },
+  diagValue: { fontFamily: 'NunitoSans_900Black', fontSize: 12.5, color: colors.ink, opacity: 0.8 },
+  diagMono: { fontFamily: 'NunitoSans_700Bold', fontSize: 12, color: colors.ink, opacity: 0.35 },
+  diagError: { fontFamily: 'NunitoSans_700Bold', fontSize: 12, color: '#F44336', opacity: 0.9 },
 })
