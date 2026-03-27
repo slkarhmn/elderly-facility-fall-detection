@@ -583,6 +583,10 @@ void updatePassiveBLEAdvertisement(uint8_t stateIndex, bool alertActive) {
 
   BLE.stopAdvertise();
 
+  // stateIndex contained in manufacturer data so passive scanners can read it
+  uint8_t mfrPayload[1] = { stateIndex };
+  BLE.setManufacturerData(0xFFFF, mfrPayload, sizeof(mfrPayload));
+
   //switch the uuid based on the alert state
   if (alertActive) {
     BLE.setAdvertisedService(fallDetectedService);
