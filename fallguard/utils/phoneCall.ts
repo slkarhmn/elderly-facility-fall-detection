@@ -8,7 +8,6 @@ export async function placeEmergencyCall(phone: string): Promise<'called' | 'dia
   const normalized = normalizePhone(phone)
   if (!normalized) return 'invalid'
 
-  // Android can place the call directly with ACTION_CALL when permission is granted.
   if (Platform.OS === 'android') {
     try {
       const hasPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CALL_PHONE)

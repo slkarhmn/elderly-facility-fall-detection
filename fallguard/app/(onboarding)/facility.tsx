@@ -122,7 +122,6 @@ export default function StepFacility() {
         isPrimary: c.isPrimary,
       }))
 
-      // 1. Always save locally — manager sees resident even without server
       const localResident: LocalResident = {
         id: patientId,
         name,
@@ -135,7 +134,6 @@ export default function StepFacility() {
       }
       await saveResidentLocally(localResident)
 
-      // 2. Send to server if IP is configured — no Arduino gate
       const serverIp = await AsyncStorage.getItem('server_ip') ?? ''
       const serverPort = await AsyncStorage.getItem('server_port') ?? '5001'
 

@@ -15,7 +15,6 @@ import { View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { atob, btoa, base64ToArrayBuffer, base64FromArrayBuffer } from 'react-native-quick-base64'
 
-// Ensure BLE/base64 helpers exist globally in React Native runtime.
 const g = globalThis as any
 if (typeof g.atob !== 'function') g.atob = atob
 if (typeof g.btoa !== 'function') g.btoa = btoa
