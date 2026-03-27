@@ -1,22 +1,3 @@
-/**
- * useFallDetection
- *
- * Dual-source fall detection hook for the resident dashboard.
- *
- * Data priority:
- *   1. BLE (direct from Arduino) — lowest latency, most accurate
- *   2. WebSocket (from server.py via scanner.py) — fallback when BLE not connected
- *
- * Returns the shape the Dashboard in app/(tabs)/index.tsx expects:
- *   ble        — { status, confidence }
- *   wsStatus   — WebSocket connection status
- *   fallDetected
- *   activityLabel  — e.g. "walking"
- *   activityIndex  — 0-6, or -1 when no signal
- *   room       — best room string from server, or null
- *   bleReconnect   — call to retry BLE connection
- */
-
 import { useEffect, useRef, useState, useCallback } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { bleManager } from '../constants/bleManager'
@@ -26,6 +7,7 @@ import {
   BLE_PREDICTION_UUID,
   BLE_CONFIDENCE_UUID,
   BLE_FALL_ALERT_UUID,
+  BLE_MODE_COMMAND_UUID,
   STATE_LABELS,
   FALL_STATE_INDEX,
 } from '../constants/bleConstants'
@@ -50,6 +32,7 @@ type ReturnShape = {
   bleReconnect:  () => void
 }
 
+const CMD_INFER = 105        // ASCII 'i' — switches Arduino from MODE_RECORD to MODE_INFER
 const WS_RECONNECT_MS = 3000
 
 export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Options): ReturnShape {
@@ -81,8 +64,24 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       }
       await device.discoverAllServicesAndCharacteristics()
       if (!mountedRef.current) return
+
+      // Arduino boots in MODE_RECORD and sends nothing useful over BLE.
+      // Send CMD_INFER ('i' = 105) to switch it to inference mode so
+      // prediction/confidence/fall characteristics start notifying.
+      try {
+        const cmdBase64 = btoa(String.fromCharCode(CMD_INFER))
+        await device.writeCharacteristicWithResponseForService(
+          BLE_SERVICE_UUID, BLE_MODE_COMMAND_UUID, cmdBase64
+        )
+        console.log('[BLE] Sent CMD_INFER to Arduino')
+      } catch (e) {
+        // Non-fatal — Arduino may already be in infer mode
+        console.warn('[BLE] CMD_INFER write failed:', e)
+      }
+
       setBleStatus('connected')
 
+      // Monitor prediction (activity state index)
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_PREDICTION_UUID, (err, char) => {
         if (!mountedRef.current || err || !char?.value) return
         try {
@@ -92,11 +91,13 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
         } catch {}
       })
 
+      // Monitor confidence (0–100)
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_CONFIDENCE_UUID, (err, char) => {
         if (!mountedRef.current || err || !char?.value) return
         try { setBleConfidence(atob(char.value).charCodeAt(0)) } catch {}
       })
 
+      // Monitor fall alert characteristic
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_FALL_ALERT_UUID, (err, char) => {
         if (!mountedRef.current || err || !char?.value) return
         try {
@@ -104,6 +105,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
         } catch {}
       })
 
+      // Auto-reconnect on disconnect
       device.onDisconnected(() => {
         if (!mountedRef.current) return
         setBleStatus('disconnected')
@@ -117,7 +119,10 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
     }
   }, [deviceId])
 
-  const bleReconnect = useCallback(() => { setBleStatus('disconnected'); connectBle() }, [connectBle])
+  const bleReconnect = useCallback(() => {
+    setBleStatus('disconnected')
+    connectBle()
+  }, [connectBle])
 
   // WebSocket 
 
@@ -169,7 +174,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
     }
   }, [patientId])
 
-  // Init 
+  // Init
 
   useEffect(() => {
     mountedRef.current = true
@@ -183,16 +188,18 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       mountedRef.current = false
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
       wsRef.current?.close()
+      // Never destroy bleManager — it is a shared singleton
     }
   }, [serverIp, deviceId])
 
   // Derive output 
 
+  // BLE takes priority; fall back to WebSocket
   const activeIndex = bleStatus === 'connected' && bleActivity >= 0 ? bleActivity : wsActivity
   const activeLabel = activeIndex >= 0 ? (STATE_LABELS[activeIndex] ?? 'unknown') : 'offline'
 
   return {
-    ble:          { status: bleStatus, confidence: bleConfidence },
+    ble:           { status: bleStatus, confidence: bleConfidence },
     wsStatus,
     fallDetected,
     activityLabel: activeLabel,

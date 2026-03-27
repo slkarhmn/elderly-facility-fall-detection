@@ -159,6 +159,12 @@ function Dashboard({ serverIp }: { serverIp: string }) {
   const wsLabel = wsStatus === 'connected' ? 'Network' : wsStatus === 'connecting' ? 'Connecting' : 'Offline'
   const dataSource = ble.status === 'connected' ? 'ble' : wsStatus === 'connected' ? 'ws' : 'none'
 
+  // Sensor button label changes based on BLE state
+  const sensorBtnLabel =
+    ble.status === 'connecting' ? 'Connecting...' :
+    ble.status === 'connected'  ? 'Re-send infer command' :
+    'Reconnect Sensor'
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -192,12 +198,17 @@ function Dashboard({ serverIp }: { serverIp: string }) {
           {activityIndex < 0 && (
             <Text style={styles.cardSub}>{dataSource === 'none' ? 'No sensor or network connection' : 'Waiting for data...'}</Text>
           )}
-          {ble.status !== 'connected' && arduinoDeviceId && (
-            <TouchableOpacity style={styles.reconnectBtn} onPress={bleReconnect} activeOpacity={0.75}>
+
+          {/* ── Sensor button: always visible when an Arduino was paired ── */}
+          {!!arduinoDeviceId && (
+            <TouchableOpacity
+              style={[styles.reconnectBtn, ble.status === 'connecting' && { opacity: 0.6 }]}
+              onPress={bleReconnect}
+              activeOpacity={0.75}
+              disabled={ble.status === 'connecting'}
+            >
               <Ionicons name="bluetooth-outline" size={13} color={colors.bg} />
-              <Text style={styles.reconnectLabel}>
-                {ble.status === 'connecting' ? 'Connecting...' : 'Reconnect Sensor'}
-              </Text>
+              <Text style={styles.reconnectLabel}>{sensorBtnLabel}</Text>
             </TouchableOpacity>
           )}
         </View>
