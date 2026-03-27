@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { bleManager } from '../constants/bleManager'
-import { atob } from 'react-native-quick-base64'
+
 import {
   BLE_SERVICE_UUID,
   BLE_PREDICTION_UUID,
