@@ -78,7 +78,6 @@ A fall is confirmed only when **all three** conditions are met:
 
 Post-fall stillness is verified using a **0.20 g** threshold. The fall alert is held active for a configurable countdown of windows.
 
-
 ### BLE Advertisement
 The device advertises as `PATIENT_<ID>` and encodes the predicted state index in the manufacturer data payload (`0xFFFF`), allowing passive scanners to read the current activity state without establishing a full BLE connection. A separate `FF01` service UUID is used for passive fall alert detection without requiring an active BLE connection.
 
