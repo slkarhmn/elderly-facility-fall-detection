@@ -32,7 +32,8 @@ type ReturnShape = {
   bleReconnect:  () => void
 }
 
-const CMD_INFER = 105        // ASCII 'i' — switches Arduino from MODE_RECORD to MODE_INFER
+const CMD_INFER       = 105
+const POLL_INTERVAL   = 2000
 const WS_RECONNECT_MS = 3000
 
 export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Options): ReturnShape {
@@ -47,84 +48,103 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
 
   const wsRef          = useRef<WebSocket | null>(null)
   const wsReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null)
   const mountedRef     = useRef(true)
+  const deviceRef      = useRef<any>(null)
   const onFallRef      = useRef(onFall)
   onFallRef.current    = onFall
 
-  // BLE 
+  const startPolling = useCallback((device: any) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      if (!mountedRef.current || !device) return
+      try {
+        const predChar = await device.readCharacteristicForService(BLE_SERVICE_UUID, BLE_PREDICTION_UUID)
+        if (predChar?.value) {
+          const idx = atob(predChar.value).charCodeAt(0)
+          if (idx !== 255) {
+            setBleActivity(idx)
+            if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+          }
+        }
+        const confChar = await device.readCharacteristicForService(BLE_SERVICE_UUID, BLE_CONFIDENCE_UUID)
+        if (confChar?.value) {
+          setBleConfidence(atob(confChar.value).charCodeAt(0))
+        }
+      } catch {}
+    }, POLL_INTERVAL)
+  }, [])
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+  }, [])
 
   const connectBle = useCallback(async () => {
     if (!deviceId) return
     setBleStatus('connecting')
     try {
       const connected = await bleManager.connectedDevices([BLE_SERVICE_UUID])
-      let device = connected.find(d => d.id === deviceId)
+      let device = connected.find((d: any) => d.id === deviceId)
       if (!device) {
         device = await bleManager.connectToDevice(deviceId, { autoConnect: true })
       }
       await device.discoverAllServicesAndCharacteristics()
       if (!mountedRef.current) return
 
-      // Arduino boots in MODE_RECORD and sends nothing useful over BLE.
-      // Send CMD_INFER ('i' = 105) to switch it to inference mode so
-      // prediction/confidence/fall characteristics start notifying.
+      deviceRef.current = device
+
       try {
         const cmdBase64 = btoa(String.fromCharCode(CMD_INFER))
-        await device.writeCharacteristicWithResponseForService(
-          BLE_SERVICE_UUID, BLE_MODE_COMMAND_UUID, cmdBase64
-        )
-        console.log('[BLE] Sent CMD_INFER to Arduino')
-      } catch (e) {
-        // Non-fatal — Arduino may already be in infer mode
-        console.warn('[BLE] CMD_INFER write failed:', e)
-      }
+        await device.writeCharacteristicWithResponseForService(BLE_SERVICE_UUID, BLE_MODE_COMMAND_UUID, cmdBase64)
+      } catch {}
 
       setBleStatus('connected')
 
-      // Monitor prediction (activity state index)
-      device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_PREDICTION_UUID, (err, char) => {
+      device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_PREDICTION_UUID, (err: any, char: any) => {
         if (!mountedRef.current || err || !char?.value) return
         try {
           const idx = atob(char.value).charCodeAt(0)
-          setBleActivity(idx)
-          if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+          if (idx !== 255) {
+            setBleActivity(idx)
+            if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+          }
         } catch {}
       })
 
-      // Monitor confidence (0–100)
-      device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_CONFIDENCE_UUID, (err, char) => {
+      device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_CONFIDENCE_UUID, (err: any, char: any) => {
         if (!mountedRef.current || err || !char?.value) return
         try { setBleConfidence(atob(char.value).charCodeAt(0)) } catch {}
       })
 
-      // Monitor fall alert characteristic
-      device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_FALL_ALERT_UUID, (err, char) => {
+      device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_FALL_ALERT_UUID, (err: any, char: any) => {
         if (!mountedRef.current || err || !char?.value) return
         try {
           if (atob(char.value).charCodeAt(0) === 1) { setFallDetected(true); onFallRef.current?.() }
         } catch {}
       })
 
-      // Auto-reconnect on disconnect
+      startPolling(device)
+
       device.onDisconnected(() => {
         if (!mountedRef.current) return
         setBleStatus('disconnected')
         setBleActivity(-1)
         setBleConfidence(0)
+        deviceRef.current = null
+        stopPolling()
         setTimeout(() => { if (mountedRef.current) connectBle() }, 3000)
       })
 
     } catch {
       if (mountedRef.current) setBleStatus('error')
     }
-  }, [deviceId])
+  }, [deviceId, startPolling, stopPolling])
 
   const bleReconnect = useCallback(() => {
+    stopPolling()
     setBleStatus('disconnected')
     connectBle()
-  }, [connectBle])
-
-  // WebSocket 
+  }, [connectBle, stopPolling])
 
   const connectWs = useCallback((ip: string, port: string) => {
     if (!ip) { setWsStatus('no_server'); return }
@@ -174,8 +194,6 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
     }
   }, [patientId])
 
-  // Init
-
   useEffect(() => {
     mountedRef.current = true
     async function init() {
@@ -186,15 +204,12 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
     init()
     return () => {
       mountedRef.current = false
+      stopPolling()
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
       wsRef.current?.close()
-      // Never destroy bleManager — it is a shared singleton
     }
   }, [serverIp, deviceId])
 
-  // Derive output 
-
-  // BLE takes priority; fall back to WebSocket
   const activeIndex = bleStatus === 'connected' && bleActivity >= 0 ? bleActivity : wsActivity
   const activeLabel = activeIndex >= 0 ? (STATE_LABELS[activeIndex] ?? 'unknown') : 'offline'
 
