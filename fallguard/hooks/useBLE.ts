@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { BleManager, Device, State } from 'react-native-ble-plx'
 import { AppState, AppStateStatus } from 'react-native'
+import { decodeBase64Byte } from '../constants/base64Byte'
 
 const BLE_SERVICE_UUID    = '19B10000-E8F2-537E-4F6C-D104768A1214'
 const BLE_FALL_ALERT_UUID = '19B10001-E8F2-537E-4F6C-D104768A1214'
@@ -44,7 +45,7 @@ export function useBLE({ deviceId, onFallDetected, enabled = true }: Options): B
 
   const decodeValue = (base64: string | null): number => {
     if (!base64) return -1
-    try { return atob(base64).charCodeAt(0) } catch { return -1 }
+    return decodeBase64Byte(base64)
   }
 
   const scheduleReconnect = useCallback(() => {

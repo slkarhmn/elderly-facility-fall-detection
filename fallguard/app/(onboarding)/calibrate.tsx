@@ -8,6 +8,7 @@ import { ProgressBar, StepTag, Headline, Subline, CTAButton, BackButton } from '
 import { Ionicons } from '@expo/vector-icons'
 import { useOnboardingStore } from '../../store/onboardingStore'
 import { bleManager } from '../../constants/bleManager'
+import { encodeBase64Byte } from '../../constants/base64Byte'
 
 const BLE_SERVICE_UUID      = '19B10000-E8F2-537E-4F6C-D104768A1214'
 const BLE_MODE_COMMAND_UUID = '19B10004-E8F2-537E-4F6C-D104768A1214'
@@ -122,7 +123,7 @@ export default function StepCalibrate() {
       const device = devices.find(d => d.id === arduinoDeviceId) ?? devices[0]
       if (!device) throw new Error('Device not connected. Go back and reconnect your sensor.')
       await device.discoverAllServicesAndCharacteristics()
-      const cmdBase64 = btoa(String.fromCharCode(CMD_CALIBRATE))
+      const cmdBase64 = encodeBase64Byte(CMD_CALIBRATE)
       await device.writeCharacteristicWithResponseForService(BLE_SERVICE_UUID, BLE_MODE_COMMAND_UUID, cmdBase64)
       setCalibState('running'); startCountdown()
     } catch (err: any) {

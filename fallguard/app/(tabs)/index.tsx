@@ -196,7 +196,15 @@ function Dashboard({ serverIp }: { serverIp: string }) {
             <Text style={styles.confidenceText}>Confidence: {ble.confidence}%</Text>
           )}
           {activityIndex < 0 && (
-            <Text style={styles.cardSub}>{dataSource === 'none' ? 'No sensor or network connection' : 'Waiting for data...'}</Text>
+            <Text style={styles.cardSub}>
+              {ble.error
+                ? `Sensor read error: ${ble.error}`
+                : ble.waitingForInference
+                  ? 'Sensor connected, but no inference output yet (prediction is still 255).'
+                  : dataSource === 'none'
+                    ? 'No sensor or network connection'
+                    : 'Waiting for data...'}
+            </Text>
           )}
 
           {/* ── Sensor button: always visible when an Arduino was paired ── */}

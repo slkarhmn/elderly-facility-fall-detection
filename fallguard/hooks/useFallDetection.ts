@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { bleManager } from '../constants/bleManager'
-import { atob } from 'react-native-quick-base64'
+import { decodeBase64Byte, encodeBase64Byte } from '../constants/base64Byte'
 import {
   BLE_SERVICE_UUID,
   BLE_PREDICTION_UUID,
@@ -23,7 +23,7 @@ type Options = {
 }
 
 type ReturnShape = {
-  ble:           { status: BleStatus; confidence: number }
+  ble:           { status: BleStatus; confidence: number; error: string | null; waitingForInference: boolean }
   wsStatus:      WsStatus
   fallDetected:  boolean
   activityLabel: string
@@ -41,6 +41,8 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
   const [bleStatus,     setBleStatus]     = useState<BleStatus>('disconnected')
   const [bleActivity,   setBleActivity]   = useState<number>(-1)
   const [bleConfidence, setBleConfidence] = useState<number>(0)
+  const [bleError,      setBleError]      = useState<string | null>(null)
+  const [sawPrediction255, setSawPrediction255] = useState<boolean>(false)
   const [wsStatus,      setWsStatus]      = useState<WsStatus>('disconnected')
   const [wsActivity,    setWsActivity]    = useState<number>(-1)
   const [wsRoom,        setWsRoom]        = useState<string | null>(null)
@@ -64,10 +66,13 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
         console.log('[POLL] decoded idx:', predChar?.value ? atob(predChar.value).charCodeAt(0) : 'null')
 
         if (predChar?.value) {
-          const idx = atob(predChar.value).charCodeAt(0)
+          const idx = decodeBase64Byte(predChar.value)
           if (idx !== 255) {
             setBleActivity(idx)
+            setSawPrediction255(false)
             if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+          } else {
+            setSawPrediction255(true)
           }
         }
 
@@ -75,10 +80,18 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
         console.log('[POLL] raw confChar value:', confChar?.value)
 
         if (confChar?.value) {
-          setBleConfidence(atob(confChar.value).charCodeAt(0))
+          setBleConfidence(decodeBase64Byte(confChar.value))
         }
+<<<<<<< Updated upstream
       } catch (e) {
         console.log('[POLL] read error:', e)
+=======
+        setBleError(null)
+      } catch (err: any) {
+        const message = err?.message ?? 'Failed to read BLE characteristics.'
+        setBleError(message)
+        console.warn('[BLE poll] read failed:', message)
+>>>>>>> Stashed changes
       }
     }, POLL_INTERVAL)
   }, [])
@@ -91,6 +104,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
     if (!deviceId) return
     console.log('[BLE] connectBle called, deviceId:', deviceId)
     setBleStatus('connecting')
+    setBleError(null)
     try {
       const connected = await bleManager.connectedDevices([BLE_SERVICE_UUID])
       console.log('[BLE] already connected devices:', connected.map((d: any) => d.id))
@@ -105,41 +119,95 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       deviceRef.current = device
 
       try {
-        const cmdBase64 = btoa(String.fromCharCode(CMD_INFER))
+        const cmdBase64 = encodeBase64Byte(CMD_INFER)
         await device.writeCharacteristicWithResponseForService(BLE_SERVICE_UUID, BLE_MODE_COMMAND_UUID, cmdBase64)
+<<<<<<< Updated upstream
         console.log('[BLE] CMD_INFER sent successfully')
       } catch (e) {
         console.log('[BLE] CMD_INFER rejected:', e)
+=======
+      } catch (err: any) {
+        const message = err?.message ?? 'Failed to send infer command.'
+        setBleError(message)
+        console.warn('[BLE] infer command failed:', message)
+>>>>>>> Stashed changes
       }
 
       setBleStatus('connected')
       console.log('[BLE] status set to connected, starting polling')
 
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_PREDICTION_UUID, (err: any, char: any) => {
+<<<<<<< Updated upstream
         if (err) { console.log('[BLE] prediction monitor error:', err); return }
         if (!mountedRef.current || !char?.value) return
         try {
           const idx = atob(char.value).charCodeAt(0)
           console.log('[BLE] prediction notify fired, idx:', idx)
+=======
+        if (!mountedRef.current) return
+        if (err) {
+          const message = err?.message ?? 'Prediction monitor failed.'
+          setBleError(message)
+          console.warn('[BLE monitor] prediction failed:', message)
+          return
+        }
+        if (!char?.value) return
+        try {
+          const idx = decodeBase64Byte(char.value)
+>>>>>>> Stashed changes
           if (idx !== 255) {
             setBleActivity(idx)
+            setSawPrediction255(false)
             if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+          } else {
+            setSawPrediction255(true)
           }
+<<<<<<< Updated upstream
         } catch (e) {
           console.log('[BLE] prediction decode error:', e)
+=======
+        } catch (decodeErr: any) {
+          const message = decodeErr?.message ?? 'Prediction decode failed.'
+          setBleError(message)
+          console.warn('[BLE monitor] prediction decode failed:', message)
+>>>>>>> Stashed changes
         }
       })
 
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_CONFIDENCE_UUID, (err: any, char: any) => {
-        if (!mountedRef.current || err || !char?.value) return
-        try { setBleConfidence(atob(char.value).charCodeAt(0)) } catch {}
+        if (!mountedRef.current) return
+        if (err) {
+          const message = err?.message ?? 'Confidence monitor failed.'
+          setBleError(message)
+          console.warn('[BLE monitor] confidence failed:', message)
+          return
+        }
+        if (!char?.value) return
+        try {
+          setBleConfidence(decodeBase64Byte(char.value))
+        } catch (decodeErr: any) {
+          const message = decodeErr?.message ?? 'Confidence decode failed.'
+          setBleError(message)
+          console.warn('[BLE monitor] confidence decode failed:', message)
+        }
       })
 
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_FALL_ALERT_UUID, (err: any, char: any) => {
-        if (!mountedRef.current || err || !char?.value) return
+        if (!mountedRef.current) return
+        if (err) {
+          const message = err?.message ?? 'Fall alert monitor failed.'
+          setBleError(message)
+          console.warn('[BLE monitor] fall alert failed:', message)
+          return
+        }
+        if (!char?.value) return
         try {
-          if (atob(char.value).charCodeAt(0) === 1) { setFallDetected(true); onFallRef.current?.() }
-        } catch {}
+          if (decodeBase64Byte(char.value) === 1) { setFallDetected(true); onFallRef.current?.() }
+        } catch (decodeErr: any) {
+          const message = decodeErr?.message ?? 'Fall alert decode failed.'
+          setBleError(message)
+          console.warn('[BLE monitor] fall alert decode failed:', message)
+        }
       })
 
       startPolling(device)
@@ -150,14 +218,23 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
         setBleStatus('disconnected')
         setBleActivity(-1)
         setBleConfidence(0)
+        setSawPrediction255(false)
         deviceRef.current = null
         stopPolling()
         setTimeout(() => { if (mountedRef.current) connectBle() }, 3000)
       })
 
+<<<<<<< Updated upstream
     } catch (e) {
       console.log('[BLE] connectBle error:', e)
       if (mountedRef.current) setBleStatus('error')
+=======
+    } catch {
+      if (mountedRef.current) {
+        setBleStatus('error')
+        setBleError('Failed to connect to sensor.')
+      }
+>>>>>>> Stashed changes
     }
   }, [deviceId, startPolling, stopPolling])
 
@@ -165,6 +242,8 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
     console.log('[BLE] bleReconnect tapped')
     stopPolling()
     setBleStatus('disconnected')
+    setBleError(null)
+    setSawPrediction255(false)
     connectBle()
   }, [connectBle, stopPolling])
 
@@ -236,7 +315,12 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
   const activeLabel = activeIndex >= 0 ? (STATE_LABELS[activeIndex] ?? 'unknown') : 'offline'
 
   return {
-    ble:           { status: bleStatus, confidence: bleConfidence },
+    ble:           {
+      status: bleStatus,
+      confidence: bleConfidence,
+      error: bleError,
+      waitingForInference: bleStatus === 'connected' && bleActivity < 0 && sawPrediction255,
+    },
     wsStatus,
     fallDetected,
     activityLabel: activeLabel,
