@@ -328,15 +328,12 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
     lastError,
   } = useServerWebSocket({ serverIp, port: serverPort, onFall: handleFall })
 
-  // Merge: live WebSocket patients take priority; local-only residents fill the gaps
   const mergedPatients: Record<string, { state: PatientState; isLocal: boolean }> = {}
 
-  // First, add all live patients
   for (const [id, state] of Object.entries(patients)) {
     mergedPatients[id] = { state, isLocal: false }
   }
 
-  // Then fill in locally registered residents that aren't live yet
   for (const resident of localResidents) {
     if (!mergedPatients[resident.id]) {
       mergedPatients[resident.id] = {
@@ -344,7 +341,6 @@ function ManagerDashboard({ serverIp, serverPort }: { serverIp: string; serverPo
         isLocal: true,
       }
     } else {
-      // Live patient exists — enrich with local profile if server hasn't sent one
       const existing = mergedPatients[resident.id]
       if (!existing.state.profile) {
         mergedPatients[resident.id] = {
