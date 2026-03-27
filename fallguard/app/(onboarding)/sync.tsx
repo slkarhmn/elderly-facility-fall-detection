@@ -1,12 +1,12 @@
-
 import React, { useState, useEffect, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
   ScrollView, ActivityIndicator, Platform, Alert,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { BleManager, Device, State } from 'react-native-ble-plx'
+import { Device, State } from 'react-native-ble-plx'
 import { PermissionsAndroid } from 'react-native'
+import { bleManager } from '../../constants/bleManager'
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { colors, radius } from '../../constants/theme'
@@ -14,7 +14,6 @@ import { ProgressBar, StepTag, Headline, Subline, CTAButton, BackButton } from '
 import { useOnboardingStore } from '../../store/onboardingStore'
 
 const FALLGUARD_SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214'
-const bleManager = new BleManager()
 
 type ScanState = 'idle' | 'scanning' | 'found' | 'connected' | 'error'
 
