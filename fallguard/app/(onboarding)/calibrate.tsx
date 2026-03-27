@@ -96,7 +96,6 @@ export default function StepCalibrate() {
 
   useEffect(() => {
     return () => {
-      // Only clear the countdown timer — never destroy the shared bleManager singleton
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   }, [])

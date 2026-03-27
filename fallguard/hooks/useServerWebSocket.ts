@@ -154,8 +154,6 @@ export function useServerWebSocket({ serverIp, port = 5001, onFall }: Options) {
           })
 
         } else if (msg.type === 'profile_update') {
-          // Resident just registered — update their profile immediately
-          // even before any scanner packet arrives
           setPatients(prev => ({
             ...prev,
             [msg.patient_id]: {
