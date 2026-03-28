@@ -270,4 +270,6 @@ async def main():
         check_latch_expirations(),
     )
 
-asyncio.run(main())
+
+if __name__ == "__main__":
+    asyncio.run(main())
