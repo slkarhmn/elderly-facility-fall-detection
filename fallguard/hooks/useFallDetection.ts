@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { bleManager } from '../constants/bleManager'
+import { usePhoneFallVerifier } from './usePhoneFallVerifier'
 
 import {
   BLE_SERVICE_UUID,
@@ -30,6 +31,7 @@ type ReturnShape = {
   activityIndex: number
   room:          string | null
   bleReconnect:  () => void
+  phoneMotionLabel: string   // surfaced for debug display
 }
 
 const CMD_INFER       = 105
@@ -54,6 +56,33 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
   const onFallRef      = useRef(onFall)
   onFallRef.current    = onFall
 
+  // ── Phone verifier ────────────────────────────────────────────────────────
+  const { verify, phoneMotionLabel } = usePhoneFallVerifier()
+
+  /**
+   * Central fall handler. Every code path that previously called
+   * setFallDetected(true) + onFallRef.current?.() now calls this instead.
+   *
+   * 'confirmed'        → real fall, fire everything
+   * 'likely_drop'      → suppress — device was dropped, person is fine
+   * 'insufficient_data'→ not enough phone data yet, escalate anyway (safety)
+   */
+  const handleFall = useCallback(() => {
+    const result = verify()
+    console.log('[FallDetection] Arduino=fall | phone verdict:', result)
+
+    if (result === 'likely_drop') {
+      console.warn('[FallDetection] Suppressed — phone shows no matching impact. Likely device drop.')
+      return
+    }
+
+    // confirmed OR insufficient_data — escalate
+    setFallDetected(true)
+    onFallRef.current?.()
+  }, [verify])
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   const startPolling = useCallback((device: any) => {
     if (pollRef.current) clearInterval(pollRef.current)
     pollRef.current = setInterval(async () => {
@@ -67,7 +96,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
           const idx = atob(predChar.value).charCodeAt(0)
           if (idx !== 255) {
             setBleActivity(idx)
-            if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+            if (idx === FALL_STATE_INDEX) handleFall()
           }
         }
 
@@ -81,7 +110,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
         console.log('[POLL] read error:', e)
       }
     }, POLL_INTERVAL)
-  }, [])
+  }, [handleFall])
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
@@ -123,7 +152,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
           console.log('[BLE] prediction notify fired, idx:', idx)
           if (idx !== 255) {
             setBleActivity(idx)
-            if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+            if (idx === FALL_STATE_INDEX) handleFall()
           }
         } catch (e) {
           console.log('[BLE] prediction decode error:', e)
@@ -138,7 +167,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       device.monitorCharacteristicForService(BLE_SERVICE_UUID, BLE_FALL_ALERT_UUID, (err: any, char: any) => {
         if (!mountedRef.current || err || !char?.value) return
         try {
-          if (atob(char.value).charCodeAt(0) === 1) { setFallDetected(true); onFallRef.current?.() }
+          if (atob(char.value).charCodeAt(0) === 1) handleFall()
         } catch {}
       })
 
@@ -159,7 +188,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       console.log('[BLE] connectBle error:', e)
       if (mountedRef.current) setBleStatus('error')
     }
-  }, [deviceId, startPolling, stopPolling])
+  }, [deviceId, startPolling, stopPolling, handleFall])
 
   const bleReconnect = useCallback(() => {
     console.log('[BLE] bleReconnect tapped')
@@ -193,17 +222,16 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
             const idx = mine.state_index ?? -1
             setWsActivity(idx)
             setWsRoom(mine.location ?? null)
-            if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+            if (idx === FALL_STATE_INDEX) handleFall()
           }
         } else if ((msg.type === 'state_change' || msg.type === 'heartbeat') && msg.patient_id === patientId) {
           const idx = msg.state_index ?? -1
           setWsActivity(idx)
           setWsRoom(msg.location ?? null)
-          if (idx === FALL_STATE_INDEX) { setFallDetected(true); onFallRef.current?.() }
+          if (idx === FALL_STATE_INDEX) handleFall()
         } else if ((msg.type === 'fall' || msg.type === 'fall_likely') && msg.patient_id === patientId) {
           setWsActivity(FALL_STATE_INDEX)
-          setFallDetected(true)
-          onFallRef.current?.()
+          handleFall()
         }
       } catch {}
     }
@@ -214,7 +242,7 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
       setWsStatus('disconnected')
       wsReconnectRef.current = setTimeout(() => connectWs(ip, port), WS_RECONNECT_MS)
     }
-  }, [patientId])
+  }, [patientId, handleFall])
 
   useEffect(() => {
     mountedRef.current = true
@@ -236,12 +264,13 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
   const activeLabel = activeIndex >= 0 ? (STATE_LABELS[activeIndex] ?? 'unknown') : 'offline'
 
   return {
-    ble:           { status: bleStatus, confidence: bleConfidence },
+    ble:              { status: bleStatus, confidence: bleConfidence },
     wsStatus,
     fallDetected,
-    activityLabel: activeLabel,
-    activityIndex: activeIndex,
-    room:          wsRoom,
+    activityLabel:    activeLabel,
+    activityIndex:    activeIndex,
+    room:             wsRoom,
     bleReconnect,
+    phoneMotionLabel,
   }
 }
