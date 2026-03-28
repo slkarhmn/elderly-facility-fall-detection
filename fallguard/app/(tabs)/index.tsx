@@ -8,6 +8,8 @@ import * as Notifications from 'expo-notifications'
 import { colors, radius } from '../../constants/theme'
 import { useOnboardingStore } from '../../store/onboardingStore'
 import { useFallDetection } from '../../hooks/useFallDetection'
+import { placeEmergencyCall } from '../../utils/phoneCall'
+import { CollapsibleSection } from '../../components/ui/collapsible-section'
 
 const AUTO_CALL_SECONDS = 30
 
@@ -66,8 +68,8 @@ const chipStyles = StyleSheet.create({
   label: { fontFamily: 'NunitoSans_800ExtraBold', fontSize: 10 },
 })
 
-function FallAlertOverlay({ visible, contactName, contactPhone, onDismiss }: {
-  visible: boolean; contactName: string | null; contactPhone: string | null; onDismiss: () => void
+function FallAlertOverlay({ visible, contactName, contactPhone, onDismiss, onCallNow }: {
+  visible: boolean; contactName: string | null; contactPhone: string | null; onDismiss: () => void; onCallNow: (phone: string) => void
 }) {
   const [countdown, setCountdown] = useState(AUTO_CALL_SECONDS)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -88,14 +90,14 @@ function FallAlertOverlay({ visible, contactName, contactPhone, onDismiss }: {
       setCountdown(prev => {
         if (prev <= 1) {
           clearInterval(intervalRef.current!)
-          if (contactPhone) Linking.openURL('tel:' + contactPhone)
+          if (contactPhone) onCallNow(contactPhone)
           onDismiss(); return 0
         }
         return prev - 1
       })
     }, 1000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [visible])
+  }, [visible, contactPhone, onCallNow, onDismiss])
 
   if (!visible) return null
 
@@ -109,7 +111,7 @@ function FallAlertOverlay({ visible, contactName, contactPhone, onDismiss }: {
         {contactPhone && (
           <TouchableOpacity style={overlayStyles.callNowBtn} onPress={() => {
             if (intervalRef.current) clearInterval(intervalRef.current)
-            Linking.openURL('tel:' + contactPhone); onDismiss()
+            onCallNow(contactPhone); onDismiss()
           }}>
             <Ionicons name="call" size={18} color={colors.bg} />
             <Text style={overlayStyles.callNowLabel}>Call Now</Text>
@@ -143,6 +145,16 @@ function Dashboard({ serverIp }: { serverIp: string }) {
   const [showFallAlert, setShowFallAlert] = useState(false)
   const primaryContact = contacts.find(c => c.isPrimary) ?? null
   const patientId = 'PATIENT_01'
+
+  const handleCallContact = useCallback((phone: string) => {
+    void placeEmergencyCall(phone).then((result) => {
+      if (result === 'dialer') {
+        console.warn('[CALL] CALL_PHONE not granted; opened dialer fallback.')
+      } else if (result === 'invalid') {
+        console.warn('[CALL] Invalid emergency contact phone; unable to call.')
+      }
+    })
+  }, [])
 
   const handleFall = useCallback(async () => {
     setShowFallAlert(true)
@@ -196,7 +208,15 @@ function Dashboard({ serverIp }: { serverIp: string }) {
             <Text style={styles.confidenceText}>Confidence: {ble.confidence}%</Text>
           )}
           {activityIndex < 0 && (
-            <Text style={styles.cardSub}>{dataSource === 'none' ? 'No sensor or network connection' : 'Waiting for data...'}</Text>
+            <Text style={styles.cardSub}>
+              {ble.error
+                ? `Sensor read error: ${ble.error}`
+                : ble.waitingForInference
+                  ? 'Sensor connected, but no inference output yet (prediction is still 255).'
+                  : dataSource === 'none'
+                    ? 'No sensor or network connection'
+                    : 'Waiting for data...'}
+            </Text>
           )}
 
           {/* ── Sensor button: always visible when an Arduino was paired ── */}
@@ -257,13 +277,20 @@ function Dashboard({ serverIp }: { serverIp: string }) {
         )}
 
         {__DEV__ && (
-          <TouchableOpacity onPress={async () => {
-            await AsyncStorage.removeItem('onboarding_complete')
-            await AsyncStorage.removeItem('user_role')
-            router.replace('/role-select')
-          }} style={styles.devReset}>
-            <Text style={styles.devResetText}>Reset Onboarding (Dev Only)</Text>
-          </TouchableOpacity>
+          <CollapsibleSection header="Dev Only">
+            <View style={styles.devActions}>
+              <TouchableOpacity onPress={() => { void handleFall() }} style={styles.devActionBtn}>
+                <Text style={styles.devActionText}>Simulate Fall Alert (Dev Only)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                await AsyncStorage.removeItem('onboarding_complete')
+                await AsyncStorage.removeItem('user_role')
+                router.replace('/role-select')
+              }} style={styles.devActionBtn}>
+                <Text style={styles.devActionText}>Reset Onboarding (Dev Only)</Text>
+              </TouchableOpacity>
+            </View>
+          </CollapsibleSection>
         )}
       </ScrollView>
 
@@ -271,6 +298,7 @@ function Dashboard({ serverIp }: { serverIp: string }) {
         visible={showFallAlert}
         contactName={primaryContact?.name ?? null}
         contactPhone={primaryContact?.phone ?? null}
+        onCallNow={handleCallContact}
         onDismiss={() => setShowFallAlert(false)}
       />
     </SafeAreaView>
@@ -326,6 +354,7 @@ const styles = StyleSheet.create({
   contactLight: { color: colors.bg },
   contactRel: { fontFamily: 'NunitoSans_600SemiBold', fontSize: 11.5, color: colors.ink, opacity: 0.4, marginTop: 2 },
   contactLightSub: { color: colors.bg, opacity: 0.45 },
-  devReset: { marginTop: 8, padding: 14, backgroundColor: 'rgba(49,55,43,0.07)', borderRadius: radius.lg },
-  devResetText: { fontFamily: 'NunitoSans_700Bold', fontSize: 13, color: colors.ink, opacity: 0.35, textAlign: 'center' },
+  devActions: { gap: 8 },
+  devActionBtn: { padding: 14, backgroundColor: 'rgba(49,55,43,0.07)', borderRadius: radius.lg },
+  devActionText: { fontFamily: 'NunitoSans_700Bold', fontSize: 13, color: colors.ink, opacity: 0.35, textAlign: 'center' },
 })

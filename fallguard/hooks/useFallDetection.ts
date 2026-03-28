@@ -56,17 +56,9 @@ export function useFallDetection({ deviceId, patientId, serverIp, onFall }: Opti
   const onFallRef      = useRef(onFall)
   onFallRef.current    = onFall
 
-  // ── Phone verifier ────────────────────────────────────────────────────────
   const { verify, phoneMotionLabel } = usePhoneFallVerifier()
 
-  /**
-   * Central fall handler. Every code path that previously called
-   * setFallDetected(true) + onFallRef.current?.() now calls this instead.
-   *
-   * 'confirmed'        → real fall, fire everything
-   * 'likely_drop'      → suppress — device was dropped, person is fine
-   * 'insufficient_data'→ not enough phone data yet, escalate anyway (safety)
-   */
+
   const handleFall = useCallback(() => {
     const result = verify()
     console.log('[FallDetection] Arduino=fall | phone verdict:', result)
